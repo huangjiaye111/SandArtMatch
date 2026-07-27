@@ -10,6 +10,7 @@ import {
   type AbsorbScheduleResult,
   type AbsorbedSandCell,
 } from "./Settlement.ts";
+import { detectDeadlock } from "./Outcome.ts";
 import { Bucket, createBucket, type BucketState } from "../bucket/Bucket.ts";
 import { ConveyorSystem, createConveyor, type ConveyorState } from "../bucket/Conveyor.ts";
 import { MergeSystem, createMergeSystem, type MergeResult } from "../bucket/Merge.ts";
@@ -132,10 +133,25 @@ export class BattleStateMachine {
       );
 
       this.enterPhase(BattlePhase.ResultCheck, phaseSequence);
-      const won = this.grid.isEmpty();
-      events.push(Object.freeze({ type: "resultChecked", phase: BattlePhase.ResultCheck, won, failed: false }));
+      const outcome = detectDeadlock({
+        grid: this.grid,
+        conveyor: this.conveyor,
+        phase: BattlePhase.ResultCheck,
+        mergeSystem: this.mergeSystem,
+        maxAbsorbCount: this.maxAbsorbCount,
+      });
+      events.push(
+        Object.freeze({
+          type: "resultChecked",
+          phase: BattlePhase.ResultCheck,
+          won: outcome.isVictory,
+          failed: outcome.isDeadlocked,
+          failureReason: outcome.isDeadlocked ? outcome.reason : undefined,
+          deadlock: outcome,
+        }),
+      );
 
-      this.enterPhase(won ? BattlePhase.Won : BattlePhase.WaitingInput, phaseSequence);
+      this.enterPhase(outcome.isVictory ? BattlePhase.Won : outcome.isDeadlocked ? BattlePhase.Failed : BattlePhase.WaitingInput, phaseSequence);
       return this.freezeActionResult({
         accepted: true,
         action: "selectBucket",

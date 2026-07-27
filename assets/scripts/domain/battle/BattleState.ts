@@ -1,4 +1,5 @@
 import type { AbsorbScheduleResult, AbsorbedSandCell } from "./Settlement.ts";
+import type { DeadlockDetectionResult } from "./Outcome.ts";
 import type { BucketState } from "../bucket/Bucket.ts";
 import type { ConveyorState } from "../bucket/Conveyor.ts";
 import type { MergeResult } from "../bucket/Merge.ts";
@@ -82,6 +83,8 @@ export interface ResultCheckedEvent {
   readonly phase: typeof BattlePhase.ResultCheck;
   readonly won: boolean;
   readonly failed: boolean;
+  readonly failureReason?: string;
+  readonly deadlock: DeadlockDetectionResult;
 }
 
 export type BattleStageEvent =

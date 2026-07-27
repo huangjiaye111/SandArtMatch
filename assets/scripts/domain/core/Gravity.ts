@@ -18,6 +18,23 @@ export interface GravitySettlementResult {
   hitIterationLimit: boolean;
 }
 
+export function hasPendingGravity(grid: SandGrid): boolean {
+  for (let y = grid.height - 2; y >= 0; y -= 1) {
+    for (let x = 0; x < grid.width; x += 1) {
+      const colorId = grid.get(x, y);
+      if (colorId === null) {
+        continue;
+      }
+
+      if (canSandMove(grid, x, y)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function applyGravityStep(grid: SandGrid, random: SeededRandom): GravityStepResult {
   let moves = 0;
 
@@ -105,6 +122,19 @@ function tryMoveSand(grid: SandGrid, random: SeededRandom, x: number, y: number,
   }
 
   return false;
+}
+
+function canSandMove(grid: SandGrid, x: number, y: number): boolean {
+  const downY = y + 1;
+  if (downY >= grid.height) {
+    return false;
+  }
+
+  if (!grid.hasSandAt(x, downY)) {
+    return true;
+  }
+
+  return (x > 0 && !grid.hasSandAt(x - 1, downY)) || (x < grid.width - 1 && !grid.hasSandAt(x + 1, downY));
 }
 
 function moveSand(

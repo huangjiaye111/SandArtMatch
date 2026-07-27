@@ -2,7 +2,7 @@
   "name": "SandArtMatch",
   "uuid": "eb3dd416-7814-4daf-ab50-c4ceb27cdcd7",
   "scripts": {
-    "test": "node --test tests/domain/Random.test.ts tests/domain/NoMathRandom.test.ts tests/domain/SandGrid.test.ts tests/domain/Gravity.test.ts tests/domain/Exposure.test.ts tests/domain/Bucket.test.ts tests/domain/Conveyor.test.ts tests/domain/Merge.test.ts tests/domain/AbsorbScheduler.test.ts tests/domain/BattleStateMachine.test.ts",
+    "test": "node --test tests/domain/Random.test.ts tests/domain/NoMathRandom.test.ts tests/domain/SandGrid.test.ts tests/domain/Gravity.test.ts tests/domain/Exposure.test.ts tests/domain/Bucket.test.ts tests/domain/Conveyor.test.ts tests/domain/Merge.test.ts tests/domain/AbsorbScheduler.test.ts tests/domain/BattleStateMachine.test.ts tests/domain/DeadlockDetector.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.domain.json"
   },
   "devDependencies": {

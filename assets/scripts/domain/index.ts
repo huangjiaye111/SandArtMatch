@@ -7,5 +7,6 @@ export * from "./bucket/Bucket";
 export * from "./bucket/Conveyor";
 export * from "./bucket/Merge";
 export * from "./battle/Settlement";
+export * from "./battle/Outcome";
 export * from "./battle/BattleState";
 export * from "./battle/BattleStateMachine";
