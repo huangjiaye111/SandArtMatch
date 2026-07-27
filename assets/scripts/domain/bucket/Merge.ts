@@ -35,6 +35,15 @@ export class MergeSystem {
     this.nextMergeSequence = sequenceStart;
   }
 
+  public snapshotSequence(): number {
+    return this.nextMergeSequence;
+  }
+
+  public restoreSequence(sequence: number): void {
+    validateSequenceStart(sequence);
+    this.nextMergeSequence = sequence;
+  }
+
   public findMergeCandidate(conveyor: ConveyorSystem): MergeCandidate | null {
     validateConveyor(conveyor);
 
