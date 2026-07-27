@@ -3,8 +3,16 @@ import {
   type BattleActionResult,
   type BattleRejectReason,
   type BattleStageEvent,
+  type BattleUndoResult,
   type BattleViewSnapshot,
 } from "./BattleState.ts";
+import {
+  DEFAULT_UNDO_HISTORY_LIMIT,
+  UndoStack,
+  cloneAndValidateBattleSnapshot,
+  createUndoStack,
+  type BattleSnapshot,
+} from "./UndoStack.ts";
 import {
   scheduleAbsorption,
   type AbsorbScheduleResult,
@@ -26,16 +34,10 @@ export interface BattleStateMachineOptions {
   readonly random: SeededRandom;
   readonly maxAbsorbCount?: number;
   readonly gravityOptions?: GravitySettleOptions;
+  readonly undoHistoryLimit?: number;
 }
 
-interface BattleInternalSnapshot {
-  readonly phase: BattlePhase;
-  readonly grid: SandGridSnapshot;
-  readonly conveyor: ConveyorState;
-  readonly buckets: readonly BucketState[];
-  readonly random: RandomSnapshot;
-  readonly mergeSequence: number;
-}
+type BattleInternalSnapshot = BattleSnapshot;
 
 const SELECTABLE_BUCKET_STATUS = "available";
 
@@ -45,10 +47,12 @@ export class BattleStateMachine {
   private conveyor: ConveyorSystem;
   private random: SeededRandom;
   private readonly mergeSystem: MergeSystem;
+  private readonly undoStack: UndoStack;
   private readonly maxAbsorbCount: number | undefined;
   private readonly gravityOptions: GravitySettleOptions;
   private bucketsById: Map<string, Bucket>;
   private bucketOrder: string[];
+  private actionIndex: number;
 
   public constructor(options: BattleStateMachineOptions) {
     validateOptions(options);
@@ -58,10 +62,12 @@ export class BattleStateMachine {
     this.conveyor = createConveyor(options.conveyor?.maxSlots);
     this.random = SeededRandom.fromSnapshot(options.random.snapshot());
     this.mergeSystem = createMergeSystem();
+    this.undoStack = createUndoStack(options.undoHistoryLimit ?? DEFAULT_UNDO_HISTORY_LIMIT);
     this.maxAbsorbCount = options.maxAbsorbCount;
     this.gravityOptions = { ...(options.gravityOptions ?? {}) };
     this.bucketsById = new Map<string, Bucket>();
     this.bucketOrder = [];
+    this.actionIndex = 0;
 
     this.loadInitialBuckets(options.buckets, options.conveyor);
   }
@@ -86,8 +92,24 @@ export class BattleStateMachine {
     const rollbackSnapshot = this.createInternalSnapshot();
     const phaseSequence: BattlePhase[] = [beforePhase];
     const events: BattleStageEvent[] = [];
+    const undoSaveResult = this.undoStack.saveOperationSnapshot(rollbackSnapshot);
+    if (!undoSaveResult.saved) {
+      return this.freezeActionResult({
+        accepted: false,
+        action: "selectBucket",
+        bucketInstanceId,
+        beforePhase,
+        afterPhase: this.phaseValue,
+        phaseSequence: [beforePhase],
+        events,
+        snapshot: this.snapshot(),
+        rejectReason: "settlementError",
+        errorMessage: undoSaveResult.errorMessage ?? undoSaveResult.failureReason,
+      });
+    }
 
     try {
+      this.actionIndex += 1;
       this.enterPhase(BattlePhase.BucketEnqueue, phaseSequence);
       const enqueueEvent = this.enqueueBucket(bucketInstanceId);
       events.push(enqueueEvent);
@@ -164,6 +186,7 @@ export class BattleStateMachine {
       });
     } catch (error) {
       this.restoreInternalSnapshot(rollbackSnapshot);
+      this.undoStack.discardLatest();
       return this.freezeActionResult({
         accepted: false,
         action: "selectBucket",
@@ -179,6 +202,81 @@ export class BattleStateMachine {
     }
   }
 
+  public canUndo(): boolean {
+    return this.phaseValue === BattlePhase.WaitingInput && this.undoStack.canUndo();
+  }
+
+  public clearUndoHistory(): void {
+    this.undoStack.clear();
+  }
+
+  public undo(): BattleUndoResult {
+    const beforePhase = this.phaseValue;
+    const phaseSequence: BattlePhase[] = [beforePhase];
+
+    if (beforePhase === BattlePhase.Won) {
+      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleAlreadyWon");
+    }
+
+    if (beforePhase === BattlePhase.Failed) {
+      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleAlreadyFailed");
+    }
+
+    if (beforePhase !== BattlePhase.WaitingInput) {
+      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleNotWaitingInput");
+    }
+
+    if (!this.undoStack.canUndo()) {
+      return this.createRejectedUndoResult(beforePhase, phaseSequence, "emptyHistory");
+    }
+
+    const currentSnapshot = this.createInternalSnapshot();
+    this.phaseValue = BattlePhase.Undoing;
+    phaseSequence.push(BattlePhase.Undoing);
+
+    const restoreResult = this.undoStack.peekLatest();
+    if (!restoreResult.restored || restoreResult.snapshot === undefined) {
+      this.restoreInternalSnapshot(currentSnapshot);
+      return this.freezeUndoResult({
+        accepted: false,
+        action: "undo",
+        beforePhase,
+        afterPhase: this.phaseValue,
+        phaseSequence,
+        snapshot: this.snapshot(),
+        rejectReason: restoreResult.failureReason ?? "restoreError",
+        errorMessage: restoreResult.errorMessage,
+      });
+    }
+
+    try {
+      this.restoreInternalSnapshot(restoreResult.snapshot);
+      this.undoStack.discardLatest();
+      this.phaseValue = BattlePhase.WaitingInput;
+      phaseSequence.push(BattlePhase.WaitingInput);
+      return this.freezeUndoResult({
+        accepted: true,
+        action: "undo",
+        beforePhase,
+        afterPhase: this.phaseValue,
+        phaseSequence,
+        snapshot: this.snapshot(),
+      });
+    } catch (error) {
+      this.restoreInternalSnapshot(currentSnapshot);
+      return this.freezeUndoResult({
+        accepted: false,
+        action: "undo",
+        beforePhase,
+        afterPhase: this.phaseValue,
+        phaseSequence,
+        snapshot: this.snapshot(),
+        rejectReason: "restoreError",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   public snapshot(): BattleViewSnapshot {
     return Object.freeze({
       phase: this.phaseValue,
@@ -186,6 +284,9 @@ export class BattleStateMachine {
       conveyor: this.conveyor.snapshot(),
       buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
       random: this.random.snapshot(),
+      actionIndex: this.actionIndex,
+      canUndo: this.canUndo(),
+      undoHistoryDepth: this.undoStack.historyDepth,
     });
   }
 
@@ -368,18 +469,37 @@ export class BattleStateMachine {
       buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
       random: this.random.snapshot(),
       mergeSequence: this.mergeSystem.snapshotSequence(),
+      actionIndex: this.actionIndex,
     });
   }
 
   private restoreInternalSnapshot(snapshot: BattleInternalSnapshot): void {
-    this.phaseValue = snapshot.phase;
-    this.grid = SandGrid.fromSnapshot(snapshot.grid);
-    this.random = SeededRandom.fromSnapshot(snapshot.random);
-    this.mergeSystem.restoreSequence(snapshot.mergeSequence);
-    this.restoreBucketsAndConveyor(snapshot.buckets, snapshot.conveyor);
+    const validatedSnapshot = cloneAndValidateBattleSnapshot(snapshot);
+    const nextGrid = SandGrid.fromSnapshot(validatedSnapshot.grid);
+    const nextRandom = SeededRandom.fromSnapshot(validatedSnapshot.random);
+    const nextBucketsAndConveyor = this.buildBucketsAndConveyor(validatedSnapshot.buckets, validatedSnapshot.conveyor);
+
+    this.phaseValue = validatedSnapshot.phase;
+    this.grid = nextGrid;
+    this.random = nextRandom;
+    this.mergeSystem.restoreSequence(validatedSnapshot.mergeSequence);
+    this.actionIndex = validatedSnapshot.actionIndex;
+    this.bucketsById = nextBucketsAndConveyor.bucketsById;
+    this.bucketOrder = nextBucketsAndConveyor.bucketOrder;
+    this.conveyor = nextBucketsAndConveyor.conveyor;
   }
 
   private restoreBucketsAndConveyor(bucketStates: readonly BucketState[], conveyorState: ConveyorState): void {
+    const nextState = this.buildBucketsAndConveyor(bucketStates, conveyorState);
+    this.bucketsById = nextState.bucketsById;
+    this.bucketOrder = nextState.bucketOrder;
+    this.conveyor = nextState.conveyor;
+  }
+
+  private buildBucketsAndConveyor(
+    bucketStates: readonly BucketState[],
+    conveyorState: ConveyorState,
+  ): { readonly bucketsById: Map<string, Bucket>; readonly bucketOrder: string[]; readonly conveyor: ConveyorSystem } {
     const nextBucketsById = new Map<string, Bucket>();
     const nextBucketOrder: string[] = [];
     const nextConveyor = createConveyor(conveyorState.maxSlots);
@@ -417,9 +537,11 @@ export class BattleStateMachine {
       nextBucketsById.set(state.instanceId, Bucket.fromSnapshot(state));
     }
 
-    this.bucketsById = nextBucketsById;
-    this.bucketOrder = nextBucketOrder;
-    this.conveyor = nextConveyor;
+    return Object.freeze({
+      bucketsById: nextBucketsById,
+      bucketOrder: nextBucketOrder,
+      conveyor: nextConveyor,
+    });
   }
 
   private loadInitialBuckets(buckets: readonly Bucket[], conveyor: ConveyorSystem | undefined): void {
@@ -471,6 +593,35 @@ export class BattleStateMachine {
       errorMessage: result.errorMessage,
     });
   }
+
+  private createRejectedUndoResult(
+    beforePhase: BattlePhase,
+    phaseSequence: BattlePhase[],
+    rejectReason: NonNullable<BattleUndoResult["rejectReason"]>,
+  ): BattleUndoResult {
+    return this.freezeUndoResult({
+      accepted: false,
+      action: "undo",
+      beforePhase,
+      afterPhase: this.phaseValue,
+      phaseSequence,
+      snapshot: this.snapshot(),
+      rejectReason,
+    });
+  }
+
+  private freezeUndoResult(result: BattleUndoResult): BattleUndoResult {
+    return Object.freeze({
+      accepted: result.accepted,
+      action: result.action,
+      beforePhase: result.beforePhase,
+      afterPhase: result.afterPhase,
+      phaseSequence: Object.freeze([...result.phaseSequence]),
+      snapshot: result.snapshot,
+      rejectReason: result.rejectReason,
+      errorMessage: result.errorMessage,
+    });
+  }
 }
 
 export function createBattleStateMachine(options: BattleStateMachineOptions): BattleStateMachine {
@@ -505,6 +656,9 @@ function validateOptions(options: BattleStateMachineOptions): void {
   if (options.maxAbsorbCount !== undefined && (!Number.isSafeInteger(options.maxAbsorbCount) || options.maxAbsorbCount < 0)) {
     throw new RangeError("BattleStateMachine maxAbsorbCount must be a non-negative safe integer.");
   }
+  if (options.undoHistoryLimit !== undefined && (!Number.isSafeInteger(options.undoHistoryLimit) || options.undoHistoryLimit <= 0)) {
+    throw new RangeError("BattleStateMachine undoHistoryLimit must be a positive safe integer.");
+  }
   for (const bucket of options.buckets) {
     if (!(bucket instanceof Bucket)) {
       throw new TypeError("BattleStateMachine buckets must be Bucket instances.");
@@ -520,7 +674,10 @@ function validateBucketInstanceId(bucketInstanceId: string): void {
 
 function isValidTransition(current: BattlePhase, next: BattlePhase): boolean {
   if (current === BattlePhase.WaitingInput) {
-    return next === BattlePhase.BucketEnqueue || next === BattlePhase.WaitingInput;
+    return next === BattlePhase.BucketEnqueue || next === BattlePhase.Undoing || next === BattlePhase.WaitingInput;
+  }
+  if (current === BattlePhase.Undoing) {
+    return next === BattlePhase.WaitingInput;
   }
   if (current === BattlePhase.BucketEnqueue) {
     return next === BattlePhase.MergeResolve;

@@ -6,6 +6,7 @@ import type { MergeResult } from "../bucket/Merge.ts";
 import type { GravitySettlementResult } from "../core/Gravity.ts";
 import type { RandomSnapshot } from "../core/Random.ts";
 import type { SandGridSnapshot } from "../core/SandGrid.ts";
+import type { UndoFailureReason } from "./UndoStack.ts";
 
 export const BattlePhase = Object.freeze({
   WaitingInput: "WaitingInput",
@@ -16,6 +17,7 @@ export const BattlePhase = Object.freeze({
   SandGravity: "SandGravity",
   BucketCompleteResolve: "BucketCompleteResolve",
   ResultCheck: "ResultCheck",
+  Undoing: "Undoing",
   Won: "Won",
   Failed: "Failed",
 } as const);
@@ -30,12 +32,22 @@ export type BattleRejectReason =
   | "conveyorFull"
   | "settlementError";
 
+export type BattleUndoRejectReason =
+  | "battleNotWaitingInput"
+  | "battleAlreadyWon"
+  | "battleAlreadyFailed"
+  | UndoFailureReason
+  | "restoreError";
+
 export interface BattleViewSnapshot {
   readonly phase: BattlePhase;
   readonly grid: SandGridSnapshot;
   readonly conveyor: ConveyorState;
   readonly buckets: readonly BucketState[];
   readonly random: RandomSnapshot;
+  readonly actionIndex: number;
+  readonly canUndo: boolean;
+  readonly undoHistoryDepth: number;
 }
 
 export interface BucketEnqueuedEvent {
@@ -106,5 +118,16 @@ export interface BattleActionResult {
   readonly events: readonly BattleStageEvent[];
   readonly snapshot: BattleViewSnapshot;
   readonly rejectReason?: BattleRejectReason;
+  readonly errorMessage?: string;
+}
+
+export interface BattleUndoResult {
+  readonly accepted: boolean;
+  readonly action: "undo";
+  readonly beforePhase: BattlePhase;
+  readonly afterPhase: BattlePhase;
+  readonly phaseSequence: readonly BattlePhase[];
+  readonly snapshot: BattleViewSnapshot;
+  readonly rejectReason?: BattleUndoRejectReason;
   readonly errorMessage?: string;
 }
