@@ -24,6 +24,13 @@ export interface ConveyorRemoveResult {
   readonly state: ConveyorState;
 }
 
+export interface ConveyorReplaceResult {
+  readonly removedBuckets: readonly Bucket[];
+  readonly insertedBucket: Bucket;
+  readonly slotIndex: number;
+  readonly state: ConveyorState;
+}
+
 export class ConveyorSystem {
   private readonly maxSlotCount: number;
   private readonly buckets: Bucket[];
@@ -153,6 +160,45 @@ export class ConveyorSystem {
     return this.removeBucketAt(slotIndex);
   }
 
+  public replaceBucketsWith(instanceIds: readonly string[], replacementBucket: Bucket): ConveyorReplaceResult {
+    validateReplacementInstanceIds(instanceIds);
+    validateBucket(replacementBucket);
+
+    if (replacementBucket.status !== "available") {
+      throw new Error(`Only available replacement buckets can enter the conveyor: ${replacementBucket.instanceId}.`);
+    }
+
+    if (this.hasBucket(replacementBucket.instanceId)) {
+      throw new Error(`Replacement bucket is already in the conveyor: ${replacementBucket.instanceId}.`);
+    }
+
+    const selectedIndexes: number[] = [];
+    for (const instanceId of instanceIds) {
+      const index = this.findBucketIndex(instanceId);
+      if (index === null) {
+        throw new Error(`Bucket is not in the conveyor: ${instanceId}.`);
+      }
+      selectedIndexes.push(index);
+    }
+    const insertionIndex = Math.min(...selectedIndexes);
+    const selectedBuckets = selectedIndexes
+      .slice()
+      .sort((left, right) => left - right)
+      .map((index) => this.buckets[index]);
+    const nextBuckets = this.buckets.filter((_, index) => selectedIndexes.indexOf(index) === -1);
+
+    replacementBucket.moveToConveyor();
+    nextBuckets.splice(insertionIndex, 0, replacementBucket);
+    this.buckets.splice(0, this.buckets.length, ...nextBuckets);
+
+    return Object.freeze({
+      removedBuckets: Object.freeze([...selectedBuckets]),
+      insertedBucket: replacementBucket,
+      slotIndex: insertionIndex,
+      state: this.snapshot(),
+    });
+  }
+
   public bucketsSnapshot(): readonly Bucket[] {
     return Object.freeze([...this.buckets]);
   }
@@ -187,6 +233,25 @@ function validateBucket(bucket: Bucket): void {
 function validateInstanceId(instanceId: string): void {
   if (typeof instanceId !== "string" || instanceId.length === 0) {
     throw new TypeError("Bucket instanceId must be a non-empty string.");
+  }
+}
+
+function validateReplacementInstanceIds(instanceIds: readonly string[]): void {
+  if (!Array.isArray(instanceIds)) {
+    throw new TypeError("Replacement instance ids must be an array.");
+  }
+
+  if (instanceIds.length === 0) {
+    throw new RangeError("Replacement requires at least one bucket instance id.");
+  }
+
+  const seen: string[] = [];
+  for (const instanceId of instanceIds) {
+    validateInstanceId(instanceId);
+    if (seen.includes(instanceId)) {
+      throw new Error(`Duplicate replacement bucket instanceId: ${instanceId}.`);
+    }
+    seen.push(instanceId);
   }
 }
 
