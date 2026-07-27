@@ -2,7 +2,7 @@
 
 ## Authority
 
-The final project scheme is portrait only. UI decisions must follow `docs/DECISIONS.txt` first, then this document.
+The final project scheme is portrait only. UI decisions must follow `docs/DECISIONS.md` first, then this document.
 
 ## Global UI Direction
 

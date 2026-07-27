@@ -4,12 +4,12 @@ This documentation set consolidates the current portrait-mode plan for SandArtMa
 
 Priority order:
 
-1. `docs/DECISIONS.txt`
-2. `AGENTS.txt`
+1. `docs/DECISIONS.md`
+2. `AGENTS.md`
 3. Files under this index
 4. `docs/source/PRODUCT_SPEC_RAW.txt`
 
-Files under `docs/source/` are raw reference material. If source material conflicts with `docs/DECISIONS.txt`, follow `docs/DECISIONS.txt`.
+Files under `docs/source/` are raw reference material. If source material conflicts with `docs/DECISIONS.md`, follow `docs/DECISIONS.md`.
 
 ## Product
 

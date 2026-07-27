@@ -4,7 +4,7 @@
 
 Frozen:
 
-- Special buckets are not listed as part of the first MVP in `docs/DECISIONS.txt`.
+- Special buckets are not listed as part of the first MVP in `docs/DECISIONS.md`.
 
 Therefore, all special bucket rules below are either post-MVP references, 可配置, or 待验证.
 
@@ -72,4 +72,4 @@ Raw-spec idea:
 
 ## Documentation Rule
 
-No special bucket behavior should be treated as implementation truth until promoted into `docs/DECISIONS.txt` or a specific active task.
+No special bucket behavior should be treated as implementation truth until promoted into `docs/DECISIONS.md` or a specific active task.

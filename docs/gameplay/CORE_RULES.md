@@ -2,7 +2,7 @@
 
 ## Authority
 
-`docs/DECISIONS.txt` is the highest-priority source for gameplay rules. This document consolidates those frozen rules and separates configurable or pending details from raw-spec suggestions.
+`docs/DECISIONS.md` is the highest-priority source for gameplay rules. This document consolidates those frozen rules and separates configurable or pending details from raw-spec suggestions.
 
 ## Frozen Rules
 

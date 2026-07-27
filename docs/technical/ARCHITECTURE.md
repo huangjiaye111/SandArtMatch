@@ -2,7 +2,7 @@
 
 ## Authority
 
-Frozen technical constraints come from `AGENTS.txt` and `docs/DECISIONS.txt`.
+Frozen technical constraints come from `AGENTS.md` and `docs/DECISIONS.md`.
 
 ## Core Principles
 

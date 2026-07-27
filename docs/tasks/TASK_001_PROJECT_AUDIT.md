@@ -10,7 +10,7 @@
 
 ## 实现范围
 
-- 阅读 `AGENTS.txt`、`docs/DECISIONS.txt`、`docs/INDEX.md` 和相关玩法、技术、测试文档。
+- 阅读 `AGENTS.md`、`docs/DECISIONS.md`、`docs/INDEX.md` 和相关玩法、技术、测试文档。
 - 检查 Cocos Creator 版本、设计分辨率、现有 `assets` 结构、场景文件和 `package.json`。
 - 确认 `assets/scripts`、`tests`、`docs/tasks` 等目录是否存在。
 - 记录任何与文档冲突的工程状态。
@@ -24,8 +24,8 @@
 
 ## 参考文档
 
-- `AGENTS.txt`
-- `docs/DECISIONS.txt`
+- `AGENTS.md`
+- `docs/DECISIONS.md`
 - `docs/INDEX.md`
 - `docs/technical/ARCHITECTURE.md`
 - `docs/testing/ACCEPTANCE_CRITERIA.md`

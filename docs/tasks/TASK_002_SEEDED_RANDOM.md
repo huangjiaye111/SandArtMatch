@@ -24,7 +24,7 @@
 
 ## 参考文档
 
-- `docs/DECISIONS.txt`
+- `docs/DECISIONS.md`
 - `docs/gameplay/CORE_RULES.md`
 - `docs/technical/ARCHITECTURE.md`
 - `docs/testing/ACCEPTANCE_CRITERIA.md`
