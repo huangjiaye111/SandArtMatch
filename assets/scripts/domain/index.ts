@@ -6,3 +6,4 @@ export * from "./config/LevelConfig";
 export * from "./bucket/Bucket";
 export * from "./bucket/Conveyor";
 export * from "./bucket/Merge";
+export * from "./battle/Settlement";
