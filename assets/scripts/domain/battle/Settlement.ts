@@ -1,9 +1,9 @@
-import type { BucketState } from "../bucket/Bucket.ts";
-import { Bucket } from "../bucket/Bucket.ts";
-import { ConveyorSystem, type ConveyorState } from "../bucket/Conveyor.ts";
-import { detectExposedSand, type ExposedSandCell } from "../core/Exposure.ts";
-import { SandGrid, type SandGridSnapshot } from "../core/SandGrid.ts";
-import type { SandColorId } from "../config/LevelConfig.ts";
+import type { BucketState } from "../bucket/Bucket";
+import { Bucket } from "../bucket/Bucket";
+import { ConveyorSystem, type ConveyorState } from "../bucket/Conveyor";
+import { detectExposedSand, type ExposedSandCell } from "../core/Exposure";
+import { SandGrid, type SandGridSnapshot } from "../core/SandGrid";
+import type { SandColorId } from "../config/LevelConfig";
 
 export interface AbsorbScheduleOptions {
   readonly maxAbsorbCount?: number;

@@ -1,12 +1,12 @@
-import type { AbsorbScheduleResult, AbsorbedSandCell } from "./Settlement.ts";
-import type { DeadlockDetectionResult } from "./Outcome.ts";
-import type { BucketState } from "../bucket/Bucket.ts";
-import type { ConveyorState } from "../bucket/Conveyor.ts";
-import type { MergeResult } from "../bucket/Merge.ts";
-import type { GravitySettlementResult } from "../core/Gravity.ts";
-import type { RandomSnapshot } from "../core/Random.ts";
-import type { SandGridSnapshot } from "../core/SandGrid.ts";
-import type { UndoFailureReason } from "./UndoStack.ts";
+import type { AbsorbScheduleResult, AbsorbedSandCell } from "./Settlement";
+import type { DeadlockDetectionResult } from "./Outcome";
+import type { BucketState } from "../bucket/Bucket";
+import type { ConveyorState } from "../bucket/Conveyor";
+import type { MergeResult } from "../bucket/Merge";
+import type { GravitySettlementResult } from "../core/Gravity";
+import type { RandomSnapshot } from "../core/Random";
+import type { SandGridSnapshot } from "../core/SandGrid";
+import type { UndoFailureReason } from "./UndoStack";
 
 export const BattlePhase = Object.freeze({
   WaitingInput: "WaitingInput",

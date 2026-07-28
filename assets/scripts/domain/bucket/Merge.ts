@@ -1,6 +1,6 @@
-import { Bucket, type BucketState, createBucket } from "./Bucket.ts";
-import { ConveyorSystem, type ConveyorState } from "./Conveyor.ts";
-import type { SandColorId } from "../config/LevelConfig.ts";
+import { Bucket, type BucketState, createBucket } from "./Bucket";
+import { ConveyorSystem, type ConveyorState } from "./Conveyor";
+import type { SandColorId } from "../config/LevelConfig";
 
 export const DEFAULT_MERGE_BUCKET_COUNT = 3;
 

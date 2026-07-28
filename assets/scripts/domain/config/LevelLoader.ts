@@ -1,15 +1,15 @@
-import { createBattleStateMachine, type BattleStateMachine } from "../battle/BattleStateMachine.ts";
-import { createBucket, type Bucket } from "../bucket/Bucket.ts";
-import { createConveyor, type ConveyorSystem } from "../bucket/Conveyor.ts";
-import { createSeededRandom, type SeededRandom } from "../core/Random.ts";
-import { SandGrid } from "../core/SandGrid.ts";
+import { createBattleStateMachine, type BattleStateMachine } from "../battle/BattleStateMachine";
+import { createBucket, type Bucket } from "../bucket/Bucket";
+import { createConveyor, type ConveyorSystem } from "../bucket/Conveyor";
+import { createSeededRandom, type SeededRandom } from "../core/Random";
+import { SandGrid } from "../core/SandGrid";
 import {
   parseLevelConfig,
   type LevelConfig,
   type LevelRulesConfig,
   type RawLevelConfig,
   type SandCellValue,
-} from "./LevelConfig.ts";
+} from "./LevelConfig";
 
 export interface LoadedLevel {
   readonly config: LevelConfig;

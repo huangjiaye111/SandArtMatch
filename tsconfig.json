@@ -4,6 +4,10 @@
 
   /* Add your custom configuration here. */
   "compilerOptions": {
-    "strict": false
-  }
+    "strict": false,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["assets/scripts/**/*.ts"],
+  "exclude": ["tests", "node_modules", "temp"]
 }

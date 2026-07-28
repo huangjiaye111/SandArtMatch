@@ -1,4 +1,4 @@
-import { Bucket } from "./Bucket.ts";
+import { Bucket } from "./Bucket";
 
 export const DEFAULT_CONVEYOR_MAX_SLOTS = 6;
 

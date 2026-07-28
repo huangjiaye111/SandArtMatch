@@ -1,10 +1,10 @@
-import { scheduleAbsorption } from "./Settlement.ts";
-import { BattlePhase } from "./BattleState.ts";
-import { ConveyorSystem } from "../bucket/Conveyor.ts";
-import { MergeSystem, createMergeSystem, type MergeCandidate } from "../bucket/Merge.ts";
-import { detectExposedSand } from "../core/Exposure.ts";
-import { hasPendingGravity as detectPendingGravity } from "../core/Gravity.ts";
-import { SandGrid } from "../core/SandGrid.ts";
+import { scheduleAbsorption } from "./Settlement";
+import { BattlePhase } from "./BattleState";
+import { ConveyorSystem } from "../bucket/Conveyor";
+import { MergeSystem, createMergeSystem, type MergeCandidate } from "../bucket/Merge";
+import { detectExposedSand } from "../core/Exposure";
+import { hasPendingGravity as detectPendingGravity } from "../core/Gravity";
+import { SandGrid } from "../core/SandGrid";
 
 export type DeadlockReason =
   | "victory"

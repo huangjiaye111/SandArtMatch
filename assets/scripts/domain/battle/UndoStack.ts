@@ -1,12 +1,12 @@
-import { BattlePhase } from "./BattleState.ts";
-import type { BucketState } from "../bucket/Bucket.ts";
-import { Bucket, createBucket } from "../bucket/Bucket.ts";
-import type { ConveyorState } from "../bucket/Conveyor.ts";
-import { createConveyor } from "../bucket/Conveyor.ts";
-import type { RandomSnapshot } from "../core/Random.ts";
-import { SeededRandom } from "../core/Random.ts";
-import type { SandGridSnapshot } from "../core/SandGrid.ts";
-import { SandGrid } from "../core/SandGrid.ts";
+import { BattlePhase } from "./BattleState";
+import type { BucketState } from "../bucket/Bucket";
+import { Bucket, createBucket } from "../bucket/Bucket";
+import type { ConveyorState } from "../bucket/Conveyor";
+import { createConveyor } from "../bucket/Conveyor";
+import type { RandomSnapshot } from "../core/Random";
+import { SeededRandom } from "../core/Random";
+import type { SandGridSnapshot } from "../core/SandGrid";
+import { SandGrid } from "../core/SandGrid";
 
 export const DEFAULT_UNDO_HISTORY_LIMIT = 3;
 

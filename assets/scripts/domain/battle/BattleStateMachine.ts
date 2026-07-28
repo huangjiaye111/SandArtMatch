@@ -5,27 +5,27 @@ import {
   type BattleStageEvent,
   type BattleUndoResult,
   type BattleViewSnapshot,
-} from "./BattleState.ts";
+} from "./BattleState";
 import {
   DEFAULT_UNDO_HISTORY_LIMIT,
   UndoStack,
   cloneAndValidateBattleSnapshot,
   createUndoStack,
   type BattleSnapshot,
-} from "./UndoStack.ts";
+} from "./UndoStack";
 import {
   scheduleAbsorption,
   type AbsorbScheduleResult,
   type AbsorbedSandCell,
-} from "./Settlement.ts";
-import { detectDeadlock } from "./Outcome.ts";
-import { Bucket, createBucket, type BucketState } from "../bucket/Bucket.ts";
-import { ConveyorSystem, createConveyor, type ConveyorState } from "../bucket/Conveyor.ts";
-import { MergeSystem, createMergeSystem, type MergeResult } from "../bucket/Merge.ts";
-import { detectExposedSand, type ExposedSandCell } from "../core/Exposure.ts";
-import { settleGravity, type GravitySettlementResult, type GravitySettleOptions } from "../core/Gravity.ts";
-import { SeededRandom, type RandomSnapshot } from "../core/Random.ts";
-import { SandGrid, type SandGridSnapshot } from "../core/SandGrid.ts";
+} from "./Settlement";
+import { detectDeadlock } from "./Outcome";
+import { Bucket, createBucket, type BucketState } from "../bucket/Bucket";
+import { ConveyorSystem, createConveyor, type ConveyorState } from "../bucket/Conveyor";
+import { MergeSystem, createMergeSystem, type MergeResult } from "../bucket/Merge";
+import { detectExposedSand, type ExposedSandCell } from "../core/Exposure";
+import { settleGravity, type GravitySettlementResult, type GravitySettleOptions } from "../core/Gravity";
+import { SeededRandom, type RandomSnapshot } from "../core/Random";
+import { SandGrid, type SandGridSnapshot } from "../core/SandGrid";
 
 export interface BattleStateMachineOptions {
   readonly grid: SandGrid;

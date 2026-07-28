@@ -1,10 +1,10 @@
-import { createBattleStateMachineFromLevel } from "./LevelLoader.ts";
+import { createBattleStateMachineFromLevel } from "./LevelLoader";
 import {
   DEFAULT_RULES,
   LEVEL_CONFIG_VERSION,
   type LevelConfig,
   type RawLevelConfig,
-} from "./LevelConfig.ts";
+} from "./LevelConfig";
 
 export const TEST_LEVEL_001: LevelConfig = Object.freeze({
   version: LEVEL_CONFIG_VERSION,

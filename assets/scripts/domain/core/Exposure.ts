@@ -1,5 +1,5 @@
-import type { SandColorId } from "../config/LevelConfig.ts";
-import { SandGrid } from "./SandGrid.ts";
+import type { SandColorId } from "../config/LevelConfig";
+import { SandGrid } from "./SandGrid";
 
 export interface ExposedSandCell {
   x: number;
