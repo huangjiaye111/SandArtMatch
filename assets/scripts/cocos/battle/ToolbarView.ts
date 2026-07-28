@@ -49,6 +49,12 @@ export class ToolbarView extends Component {
     this.setResult(reason === undefined || reason.length === 0 ? "Lose" : `Lose: ${reason}`);
   }
 
+  public showFeedback(message: string): void {
+    if (this.levelLabel !== null) {
+      this.levelLabel.string = message.length === 0 ? "Ready" : message;
+    }
+  }
+
   public hideResult(): void {
     if (this.resultRoot !== null) {
       this.resultRoot.active = false;

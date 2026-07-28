@@ -9,7 +9,7 @@ import {
 export const TEST_LEVEL_001: LevelConfig = Object.freeze({
   version: LEVEL_CONFIG_VERSION,
   levelId: 1,
-  seed: "test-level-001",
+  seed: "first-playable-001",
   width: 4,
   height: 4,
   sandMap: Object.freeze([
@@ -20,10 +20,14 @@ export const TEST_LEVEL_001: LevelConfig = Object.freeze({
   ]),
   conveyorSlots: 6,
   bucketQueue: Object.freeze([
+    Object.freeze({ configId: "t01-green-a", colorId: 3, capacity: 2, initialAmount: 0, specialType: "normal" }),
+    Object.freeze({ configId: "t01-green-b", colorId: 3, capacity: 3, initialAmount: 0, specialType: "normal" }),
+    Object.freeze({ configId: "t01-green-c", colorId: 3, capacity: 4, initialAmount: 0, specialType: "normal" }),
     Object.freeze({ configId: "t01-red-a", colorId: 1, capacity: 3, initialAmount: 0, specialType: "normal" }),
     Object.freeze({ configId: "t01-blue-a", colorId: 2, capacity: 4, initialAmount: 0, specialType: "normal" }),
     Object.freeze({ configId: "t01-red-b", colorId: 1, capacity: 2, initialAmount: 0, specialType: "normal" }),
     Object.freeze({ configId: "t01-blue-b", colorId: 2, capacity: 2, initialAmount: 0, specialType: "normal" }),
+    Object.freeze({ configId: "t01-yellow-spare", colorId: 4, capacity: 2, initialAmount: 0, specialType: "normal" }),
   ]),
   rules: DEFAULT_RULES,
 });

@@ -17,7 +17,7 @@ export class SandGridView extends Component {
       this.titleLabel.string = "Sand Area";
     }
     if (this.detailLabel !== null) {
-      this.detailLabel.string = `${grid.width} x ${grid.height} / ${sandCount} sand`;
+      this.detailLabel.string = `${grid.width} x ${grid.height} / ${sandCount} sand\n${formatGridRows(grid)}`;
     }
   }
 
@@ -29,4 +29,17 @@ export class SandGridView extends Component {
       this.detailLabel.string = "";
     }
   }
+}
+
+function formatGridRows(grid: SandGridSnapshot): string {
+  const rows: string[] = [];
+  for (let y = 0; y < grid.height; y += 1) {
+    const row: string[] = [];
+    for (let x = 0; x < grid.width; x += 1) {
+      const cell = grid.cells[y * grid.width + x];
+      row.push(cell === null ? "." : String(cell));
+    }
+    rows.push(row.join(" "));
+  }
+  return rows.join("\n");
 }

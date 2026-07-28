@@ -134,11 +134,56 @@ describe("LevelLoader", () => {
     assert.equal(machine.snapshot().phase, BattlePhase.WaitingInput);
     assert.equal(machine.snapshot().conveyor.maxSlots, 6);
     assert.deepEqual(machine.snapshot().buckets.map((bucket) => bucket.instanceId), [
+      "t01-green-a",
+      "t01-green-b",
+      "t01-green-c",
       "t01-red-a",
       "t01-blue-a",
       "t01-red-b",
       "t01-blue-b",
+      "t01-yellow-spare",
     ]);
+  });
+
+  it("plays the built-in first playable through merge, absorption, gravity, bucket exit, and victory", () => {
+    const machine = createBattleStateMachineForBuiltInTestLevel();
+    const actions = ["t01-green-a", "t01-green-b", "t01-green-c", "t01-red-a", "t01-blue-a", "t01-red-b"];
+
+    const results = actions.map((bucketId) => machine.selectBucket(bucketId));
+
+    assert.equal(getBuiltInTestLevel().seed, "first-playable-001");
+    assert.equal(results.every((result) => result.accepted), true);
+    assert.equal(results[2].events.find((event) => event.type === "mergeResolved")?.type, "mergeResolved");
+    const mergeEvent = results[2].events.find((event) => event.type === "mergeResolved");
+    assert.equal(mergeEvent?.type === "mergeResolved" && mergeEvent.result.merged, true);
+    assert.equal(results.some((result) => {
+      const event = result.events.find((candidate) => candidate.type === "absorbResolved");
+      return event?.type === "absorbResolved" && event.schedule.assignedCount > 0;
+    }), true);
+    assert.equal(results.some((result) => {
+      const event = result.events.find((candidate) => candidate.type === "sandGravityResolved");
+      return event?.type === "sandGravityResolved" && event.result.totalMoves > 0;
+    }), true);
+    assert.equal(results.some((result) => {
+      const event = result.events.find((candidate) => candidate.type === "bucketCompleteResolved");
+      return event?.type === "bucketCompleteResolved" && event.completedBucketInstanceIds.length > 0;
+    }), true);
+    assert.equal(results.at(-1)?.afterPhase, BattlePhase.Won);
+    assert.equal(machine.snapshot().grid.cells.every((cell) => cell === null), true);
+  });
+
+  it("restores the first playable snapshot with undo and repeats deterministically", () => {
+    const machine = createBattleStateMachineForBuiltInTestLevel();
+    machine.selectBucket("t01-green-a");
+    const beforeRepeat = machine.snapshot();
+    const first = machine.selectBucket("t01-green-b");
+
+    const undo = machine.undo();
+    const second = machine.selectBucket("t01-green-b");
+
+    assert.equal(undo.accepted, true);
+    assert.deepEqual(undo.snapshot, beforeRepeat);
+    assert.deepEqual(second, first);
   });
 
   it("returns deterministic loaded configs and battle snapshots for identical input", () => {

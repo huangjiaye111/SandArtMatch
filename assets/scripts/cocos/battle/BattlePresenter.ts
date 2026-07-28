@@ -28,6 +28,7 @@ export class BattlePresenter {
 
   public selectBucket(bucketInstanceId: string): void {
     if (!this.inputEnabled || !this.machine.canAcceptInput()) {
+      this.view.showFeedback("Input locked");
       return;
     }
 
@@ -36,7 +37,8 @@ export class BattlePresenter {
   }
 
   public undo(): void {
-    if (!this.inputEnabled || !this.machine.canUndo()) {
+    if (!this.inputEnabled) {
+      this.view.showFeedback("Input locked");
       return;
     }
 
@@ -70,5 +72,32 @@ export class BattlePresenter {
     }
 
     this.view.hideResult();
+
+    if (failureReason !== undefined) {
+      this.view.showFeedback(formatFailureReason(failureReason));
+    } else {
+      this.view.setLevelText(this.levelText);
+    }
+  }
+}
+
+function formatFailureReason(reason: string): string {
+  switch (reason) {
+    case "battleNotWaitingInput":
+      return "Input locked";
+    case "battleAlreadyWon":
+      return "Already won";
+    case "bucketNotFound":
+      return "Bucket unavailable";
+    case "bucketNotSelectable":
+      return "Bucket not selectable";
+    case "conveyorFull":
+      return "Conveyor full";
+    case "settlementError":
+      return "Settlement error";
+    case "emptyHistory":
+      return "Nothing to undo";
+    default:
+      return reason;
   }
 }

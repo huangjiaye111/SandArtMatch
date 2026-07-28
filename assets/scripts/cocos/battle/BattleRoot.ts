@@ -76,6 +76,10 @@ export class BattleRoot extends Component implements BattleView {
     this.bucketPoolView?.renderBucketPool(buckets);
   }
 
+  public showFeedback(message: string): void {
+    this.toolbarView?.showFeedback(message);
+  }
+
   public showWin(): void {
     this.toolbarView?.showWin();
   }

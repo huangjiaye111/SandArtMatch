@@ -16,6 +16,8 @@ class FakeBattleView implements BattleView {
   public conveyor: ConveyorState | null = null;
   public buckets: readonly BucketState[] = [];
   public result: "hidden" | "win" | "lose" = "hidden";
+  public feedback = "";
+  public undoRejected = false;
   public initializedSnapshot: BattleViewSnapshot | null = null;
   public clearCount = 0;
 
@@ -48,6 +50,10 @@ class FakeBattleView implements BattleView {
     this.buckets = buckets;
   }
 
+  public showFeedback(message: string): void {
+    this.feedback = message;
+  }
+
   public showWin(): void {
     this.result = "win";
   }
@@ -78,7 +84,7 @@ describe("BattlePresenter", () => {
     assert.equal(view.inputEnabled, true);
     assert.equal(view.undoEnabled, false);
     assert.equal(view.conveyor?.slots.length, 6);
-    assert.equal(view.buckets.length, 4);
+    assert.equal(view.buckets.length, 8);
     assert.equal(view.sandGrid?.width, 4);
     assert.equal(view.result, "hidden");
   });
@@ -126,5 +132,37 @@ describe("BattlePresenter", () => {
     assert.equal(machine.snapshot().actionIndex, 0);
     assert.equal(view.inputEnabled, false);
     assert.equal(view.undoEnabled, false);
+    assert.equal(view.feedback, "Input locked");
+  });
+
+  it("shows feedback for unavailable undo requests", () => {
+    const machine = createBattleStateMachineForBuiltInTestLevel();
+    const view = new FakeBattleView();
+    const presenter = new BattlePresenter(machine, view, "Level 1");
+    presenter.initialize();
+    const originalUndo = machine.undo.bind(machine);
+    machine.undo = () => {
+      view.undoRejected = true;
+      return originalUndo();
+    };
+
+    presenter.undo();
+
+    assert.equal(machine.snapshot().actionIndex, 0);
+    assert.equal(view.undoRejected, true);
+    assert.equal(view.feedback, "Nothing to undo");
+  });
+
+  it("restores the level text after a later successful render", () => {
+    const machine = createBattleStateMachineForBuiltInTestLevel();
+    const view = new FakeBattleView();
+    const presenter = new BattlePresenter(machine, view, "Level 1");
+    presenter.initialize();
+
+    presenter.undo();
+    presenter.selectBucket("t01-green-a");
+
+    assert.equal(view.feedback, "Nothing to undo");
+    assert.equal(view.levelText, "Level 1");
   });
 });

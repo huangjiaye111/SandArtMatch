@@ -11,6 +11,7 @@ export interface BattleView {
   renderSandGrid(grid: SandGridSnapshot): void;
   renderConveyor(conveyor: ConveyorState, buckets: readonly BucketState[]): void;
   renderBucketPool(buckets: readonly BucketState[]): void;
+  showFeedback(message: string): void;
   showWin(): void;
   showLose(reason?: string): void;
   hideResult(): void;
