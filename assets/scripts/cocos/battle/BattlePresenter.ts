@@ -4,6 +4,7 @@ import type { BattleView } from "./BattleViewContract";
 
 export class BattlePresenter {
   private inputEnabled = true;
+  private isHandlingAction = false;
   private readonly machine: BattleStateMachine;
   private readonly view: BattleView;
   private readonly levelText: string;
@@ -27,23 +28,43 @@ export class BattlePresenter {
   }
 
   public selectBucket(bucketInstanceId: string): void {
-    if (!this.inputEnabled || !this.machine.canAcceptInput()) {
+    if (!this.inputEnabled || this.isHandlingAction || !this.machine.canAcceptInput()) {
       this.view.showFeedback("Input locked");
       return;
     }
 
-    const result = this.machine.selectBucket(bucketInstanceId);
-    this.sync(result.snapshot, result.rejectReason);
+    this.isHandlingAction = true;
+    this.view.setInputEnabled(false);
+    this.view.setUndoEnabled(false);
+    try {
+      const result = this.machine.selectBucket(bucketInstanceId);
+      this.sync(result.snapshot, result.rejectReason);
+    } finally {
+      this.isHandlingAction = false;
+      const snapshot = this.machine.snapshot();
+      this.view.setInputEnabled(this.inputEnabled && this.machine.canAcceptInput());
+      this.view.setUndoEnabled(this.inputEnabled && snapshot.canUndo);
+    }
   }
 
   public undo(): void {
-    if (!this.inputEnabled) {
+    if (!this.inputEnabled || this.isHandlingAction) {
       this.view.showFeedback("Input locked");
       return;
     }
 
-    const result = this.machine.undo();
-    this.sync(result.snapshot, result.rejectReason);
+    this.isHandlingAction = true;
+    this.view.setInputEnabled(false);
+    this.view.setUndoEnabled(false);
+    try {
+      const result = this.machine.undo();
+      this.sync(result.snapshot, result.rejectReason);
+    } finally {
+      this.isHandlingAction = false;
+      const snapshot = this.machine.snapshot();
+      this.view.setInputEnabled(this.inputEnabled && this.machine.canAcceptInput());
+      this.view.setUndoEnabled(this.inputEnabled && snapshot.canUndo);
+    }
   }
 
   public refresh(): void {

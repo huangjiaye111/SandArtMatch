@@ -148,6 +148,33 @@ describe("BattleStateMachine", () => {
     assert.deepEqual(machine.snapshot(), before);
   });
 
+  it("rejects reentrant bucket input while settlement is already processing", () => {
+    const machine = createBattleStateMachine({
+      grid: basicGrid(),
+      buckets: [bucket("red", 1), bucket("blue", 2)],
+      random: createSeededRandom("reentrant-input"),
+    });
+    const internals = machine as unknown as {
+      enqueueBucket: (bucketInstanceId: string) => BattleStageEvent;
+    };
+    const enqueueBucket = internals.enqueueBucket.bind(machine);
+    let nestedResult: BattleActionResult | null = null;
+    internals.enqueueBucket = (bucketInstanceId: string) => {
+      nestedResult = machine.selectBucket("blue");
+      return enqueueBucket(bucketInstanceId);
+    };
+
+    const result = machine.selectBucket("red");
+
+    assert.equal(result.accepted, true);
+    assert.equal(nestedResult !== null, true);
+    const nested = nestedResult as unknown as BattleActionResult;
+    assert.equal(nested.accepted, false);
+    assert.equal(nested.rejectReason, "battleNotWaitingInput");
+    assert.equal(machine.snapshot().actionIndex, 1);
+    assert.equal(machine.snapshot().buckets.find((storedBucket) => storedBucket.instanceId === "blue")?.status, "available");
+  });
+
   it("runs merge after enqueue and feeds the merged bucket into absorption", () => {
     const conveyor = createConveyor();
     conveyor.addBucket(bucket("red-a", 1, 2));
@@ -365,6 +392,41 @@ describe("BattleStateMachine", () => {
       BattlePhase.SandGravity,
     ]);
     assert.deepEqual(machine.snapshot(), before);
+  });
+
+  it("discards failed-operation undo history and can continue after a settlement exception", () => {
+    const machine = createBattleStateMachine({
+      grid: basicGrid(),
+      buckets: [bucket("red", 1, 3), bucket("blue", 2, 3)],
+      random: createSeededRandom("throw-once"),
+    });
+    const internals = machine as unknown as {
+      resolveGravity: () => unknown;
+    };
+    const resolveGravity = internals.resolveGravity.bind(machine);
+    let shouldThrow = true;
+    internals.resolveGravity = () => {
+      if (shouldThrow) {
+        shouldThrow = false;
+        throw new Error("simulated gravity failure");
+      }
+      return resolveGravity();
+    };
+    const before = machine.snapshot();
+
+    const failed = machine.selectBucket("red");
+    const retried = machine.selectBucket("red");
+
+    assert.equal(failed.accepted, false);
+    assert.equal(failed.rejectReason, "settlementError");
+    assert.equal(failed.errorMessage, "simulated gravity failure");
+    assert.deepEqual(failed.snapshot, before);
+    assert.equal(machine.currentPhase, BattlePhase.WaitingInput);
+    assert.equal(failed.snapshot.undoHistoryDepth, 0);
+    assert.equal(failed.snapshot.canUndo, false);
+    assert.equal(retried.accepted, true);
+    assert.equal(retried.snapshot.actionIndex, 1);
+    assert.equal(retried.snapshot.undoHistoryDepth, 1);
   });
 
   it("is deterministic for identical initial state and identical action sequence", () => {

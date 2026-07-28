@@ -29,6 +29,12 @@ export class ToolbarView extends Component {
     this.rebindButtons();
   }
 
+  public clearActions(): void {
+    this.actions = null;
+    this.clearButtonHandlers();
+    this.setUndoEnabled(false);
+  }
+
   public setLevelText(text: string): void {
     if (this.levelLabel !== null) {
       this.levelLabel.string = text;
@@ -71,7 +77,7 @@ export class ToolbarView extends Component {
   }
 
   protected onDestroy(): void {
-    this.clearButtonHandlers();
+    this.clearActions();
   }
 
   private rebindButtons(): void {

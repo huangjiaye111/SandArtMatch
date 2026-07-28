@@ -25,6 +25,13 @@ export class BucketPoolView extends Component {
     this.rebindButtons();
   }
 
+  public clearActions(): void {
+    this.actions = null;
+    this.inputEnabled = false;
+    this.clearButtonHandlers();
+    this.refreshButtonStates();
+  }
+
   public setInputEnabled(enabled: boolean): void {
     this.inputEnabled = enabled;
     this.refreshButtonStates();
@@ -56,7 +63,7 @@ export class BucketPoolView extends Component {
   }
 
   protected onDestroy(): void {
-    this.clearButtonHandlers();
+    this.clearActions();
   }
 
   private rebindButtons(): void {

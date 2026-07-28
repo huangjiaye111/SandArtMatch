@@ -53,6 +53,7 @@ export class BattleStateMachine {
   private bucketsById: Map<string, Bucket>;
   private bucketOrder: string[];
   private actionIndex: number;
+  private isProcessing: boolean;
 
   public constructor(options: BattleStateMachineOptions) {
     validateOptions(options);
@@ -68,6 +69,7 @@ export class BattleStateMachine {
     this.bucketsById = new Map<string, Bucket>();
     this.bucketOrder = [];
     this.actionIndex = 0;
+    this.isProcessing = false;
 
     this.loadInitialBuckets(options.buckets, options.conveyor);
   }
@@ -77,7 +79,7 @@ export class BattleStateMachine {
   }
 
   public canAcceptInput(): boolean {
-    return this.phaseValue === BattlePhase.WaitingInput;
+    return this.phaseValue === BattlePhase.WaitingInput && !this.isProcessing;
   }
 
   public selectBucket(bucketInstanceId: string): BattleActionResult {
@@ -108,6 +110,7 @@ export class BattleStateMachine {
       });
     }
 
+    this.isProcessing = true;
     try {
       this.actionIndex += 1;
       this.enterPhase(BattlePhase.BucketEnqueue, phaseSequence);
@@ -174,6 +177,7 @@ export class BattleStateMachine {
       );
 
       this.enterPhase(outcome.isVictory ? BattlePhase.Won : outcome.isDeadlocked ? BattlePhase.Failed : BattlePhase.WaitingInput, phaseSequence);
+      this.isProcessing = false;
       return this.freezeActionResult({
         accepted: true,
         action: "selectBucket",
@@ -187,6 +191,7 @@ export class BattleStateMachine {
     } catch (error) {
       this.restoreInternalSnapshot(rollbackSnapshot);
       this.undoStack.discardLatest();
+      this.isProcessing = false;
       return this.freezeActionResult({
         accepted: false,
         action: "selectBucket",
@@ -203,7 +208,7 @@ export class BattleStateMachine {
   }
 
   public canUndo(): boolean {
-    return this.phaseValue === BattlePhase.WaitingInput && this.undoStack.canUndo();
+    return this.phaseValue === BattlePhase.WaitingInput && !this.isProcessing && this.undoStack.canUndo();
   }
 
   public clearUndoHistory(): void {
@@ -231,12 +236,14 @@ export class BattleStateMachine {
     }
 
     const currentSnapshot = this.createInternalSnapshot();
+    this.isProcessing = true;
     this.phaseValue = BattlePhase.Undoing;
     phaseSequence.push(BattlePhase.Undoing);
 
     const restoreResult = this.undoStack.peekLatest();
     if (!restoreResult.restored || restoreResult.snapshot === undefined) {
       this.restoreInternalSnapshot(currentSnapshot);
+      this.isProcessing = false;
       return this.freezeUndoResult({
         accepted: false,
         action: "undo",
@@ -254,6 +261,7 @@ export class BattleStateMachine {
       this.undoStack.discardLatest();
       this.phaseValue = BattlePhase.WaitingInput;
       phaseSequence.push(BattlePhase.WaitingInput);
+      this.isProcessing = false;
       return this.freezeUndoResult({
         accepted: true,
         action: "undo",
@@ -264,6 +272,7 @@ export class BattleStateMachine {
       });
     } catch (error) {
       this.restoreInternalSnapshot(currentSnapshot);
+      this.isProcessing = false;
       return this.freezeUndoResult({
         accepted: false,
         action: "undo",
@@ -293,6 +302,10 @@ export class BattleStateMachine {
   private validateBucketSelection(bucketInstanceId: string): BattleRejectReason | null {
     if (this.phaseValue === BattlePhase.Won) {
       return "battleAlreadyWon";
+    }
+
+    if (this.isProcessing) {
+      return "battleNotWaitingInput";
     }
 
     if (this.phaseValue !== BattlePhase.WaitingInput) {

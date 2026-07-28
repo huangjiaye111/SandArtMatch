@@ -42,6 +42,14 @@ export class BattleRoot extends Component implements BattleView {
     this.presenter.initialize();
   }
 
+  protected onDestroy(): void {
+    this.presenter?.clear();
+    this.bucketPoolView?.clearActions();
+    this.toolbarView?.clearActions();
+    this.presenter = null;
+    this.machine = null;
+  }
+
   public initialize(snapshot: BattleViewSnapshot): void {
     this.clear();
     this.renderSandGrid(snapshot.grid);

@@ -135,6 +135,29 @@ describe("BattlePresenter", () => {
     assert.equal(view.feedback, "Input locked");
   });
 
+  it("locks presenter input against nested high-frequency bucket clicks", () => {
+    const machine = createBattleStateMachineForBuiltInTestLevel();
+    const view = new FakeBattleView();
+    const presenter = new BattlePresenter(machine, view, "Level 1");
+    presenter.initialize();
+    const originalSelectBucket = machine.selectBucket.bind(machine);
+    let nestedClickCount = 0;
+    machine.selectBucket = (bucketInstanceId: string) => {
+      nestedClickCount += 1;
+      if (nestedClickCount === 1) {
+        presenter.selectBucket("t01-green-b");
+      }
+      return originalSelectBucket(bucketInstanceId);
+    };
+
+    presenter.selectBucket("t01-green-a");
+
+    assert.equal(nestedClickCount, 1);
+    assert.equal(machine.snapshot().actionIndex, 1);
+    assert.equal(view.buckets.find((bucket) => bucket.instanceId === "t01-green-b")?.status, "available");
+    assert.equal(view.inputEnabled, true);
+  });
+
   it("shows feedback for unavailable undo requests", () => {
     const machine = createBattleStateMachineForBuiltInTestLevel();
     const view = new FakeBattleView();

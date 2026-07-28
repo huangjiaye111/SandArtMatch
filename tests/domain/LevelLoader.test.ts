@@ -186,6 +186,36 @@ describe("LevelLoader", () => {
     assert.deepEqual(second, first);
   });
 
+  it("replays the first playable deterministically across a longer action and undo sequence", () => {
+    const actions = [
+      "t01-green-a",
+      "t01-green-b",
+      "undo",
+      "t01-green-b",
+      "t01-green-c",
+      "t01-red-a",
+      "undo",
+      "t01-red-a",
+      "t01-blue-a",
+      "t01-red-b",
+    ] as const;
+    const play = () => {
+      const machine = createBattleStateMachineForBuiltInTestLevel();
+      const results = actions.map((action) => (action === "undo" ? machine.undo() : machine.selectBucket(action)));
+      return {
+        results,
+        snapshot: machine.snapshot(),
+      };
+    };
+
+    const first = play();
+    const second = play();
+
+    assert.deepEqual(second, first);
+    assert.equal(first.snapshot.phase, BattlePhase.Won);
+    assert.equal(first.snapshot.grid.cells.every((cell) => cell === null), true);
+  });
+
   it("returns deterministic loaded configs and battle snapshots for identical input", () => {
     const first = createLoadedLevel(completeRawLevel());
     const second = createLoadedLevel(completeRawLevel());
