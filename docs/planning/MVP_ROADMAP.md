@@ -61,6 +61,7 @@ Frozen scope:
 
 Frozen scope:
 
+- `TASK_016_FIRST_PLAYABLE_HARDENING.md`: stabilize the TASK015 First Playable before expanding MVP scope.
 - Determinism checks.
 - Undo checks.
 - Deadlock checks.

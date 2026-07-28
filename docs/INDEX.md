@@ -38,6 +38,10 @@ Files under `docs/source/` are raw reference material. If source material confli
 
 - `docs/testing/ACCEPTANCE_CRITERIA.md`: acceptance criteria for MVP gameplay, UI, and technical boundaries.
 
+## Tasks
+
+- `docs/tasks/TASK_016_FIRST_PLAYABLE_HARDENING.md`: First Playable stability, deterministic replay, lifecycle, Cocos validation, and performance-baseline hardening.
+
 ## Known Source Issues
 
 - The raw spec contains both V0.4 and V0.5 content, causing repeated coverage of UI layout, MVP scope, page flow, resources, and scene structure.
