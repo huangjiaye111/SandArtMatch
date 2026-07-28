@@ -40,6 +40,7 @@ Files under `docs/source/` are raw reference material. If source material confli
 
 ## Tasks
 
+- `docs/tasks/TASK_017_BATTLE_READABILITY_AND_INTERACTION_POLISH.md`: First Playable battle readability, Sand Workshop art integration, interaction feedback, accessibility, portrait adaptation, and Cocos validation planning.
 - `docs/tasks/TASK_016_FIRST_PLAYABLE_HARDENING.md`: First Playable stability, deterministic replay, lifecycle, Cocos validation, and performance-baseline hardening.
 
 ## Known Source Issues

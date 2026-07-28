@@ -62,6 +62,7 @@ Frozen scope:
 Frozen scope:
 
 - `TASK_016_FIRST_PLAYABLE_HARDENING.md`: stabilize the TASK015 First Playable before expanding MVP scope.
+- `TASK_017_BATTLE_READABILITY_AND_INTERACTION_POLISH.md`: integrate the approved Sand Workshop battle visual direction into the First Playable readability and interaction layer without changing gameplay rules.
 - Determinism checks.
 - Undo checks.
 - Deadlock checks.
@@ -73,6 +74,8 @@ Frozen scope:
 - Performance target thresholds.
 - Visual effects quality.
 - Toast text.
+- Exact battle art asset implementation details.
+- Exact Cocos Prefab split, as long as scene and Prefab references remain safe.
 
 ## Explicitly Postponed
 
