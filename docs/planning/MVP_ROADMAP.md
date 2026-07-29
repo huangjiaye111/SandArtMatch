@@ -64,6 +64,7 @@ Frozen scope:
 - `TASK_016_FIRST_PLAYABLE_HARDENING.md`: stabilize the TASK015 First Playable before expanding MVP scope.
 - `TASK_017_BATTLE_READABILITY_AND_INTERACTION_POLISH.md`: integrate the approved Sand Workshop battle visual direction into the First Playable readability and interaction layer without changing gameplay rules.
 - `TASK_018_BATTLE_PRESENTATION_COMPLETION.md`: complete the baseline Battle presentation for MVP acceptance after TASK017, without level expansion or multi-resolution adaptation.
+- `TASK_019_SAND_CANVAS_AND_CORE_FEEDBACK.md`: upgrade Battle from a baseline presentation to a showcase-ready sand-art elimination slice with a formal high-density SandCanvas, one original display level, complete core feedback, layout rebalance, and performance validation.
 - Determinism checks.
 - Undo checks.
 - Deadlock checks.

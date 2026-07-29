@@ -40,6 +40,7 @@ Files under `docs/source/` are raw reference material. If source material confli
 
 ## Tasks
 
+- `docs/tasks/TASK_019_SAND_CANVAS_AND_CORE_FEEDBACK.md`: Plan the next Battle presentation stage: a formal high-density SandCanvas renderer, one original showcase level, core feedback for exposed sand, absorption, gravity, merge, full bucket exit, Undo redraw, layout rebalance, and performance validation.
 - `docs/tasks/TASK_018_BATTLE_PRESENTATION_COMPLETION.md`: Complete the baseline Battle presentation for MVP acceptance, including SandGrid visuals, result panel, top bar/buttons, bucket/conveyor finishing, feedback, and performance/manual validation, without level expansion or multi-resolution adaptation.
 - `docs/tasks/TASK_017_BATTLE_READABILITY_AND_INTERACTION_POLISH.md`: First Playable battle readability, Sand Workshop art integration, interaction feedback, accessibility, portrait adaptation, and Cocos validation planning.
 - `docs/tasks/TASK_016_FIRST_PLAYABLE_HARDENING.md`: First Playable stability, deterministic replay, lifecycle, Cocos validation, and performance-baseline hardening.
