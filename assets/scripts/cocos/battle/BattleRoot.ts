@@ -36,6 +36,7 @@ export class BattleRoot extends Component implements BattleView {
   private presenter: BattlePresenter | null = null;
 
   public onLoad(): void {
+    this.hideResult();
     this.machine = createBattleStateMachineForBuiltInTestLevel(this.levelId);
     this.presenter = new BattlePresenter(this.machine, this, this.levelText);
     this.bindChildActions();
