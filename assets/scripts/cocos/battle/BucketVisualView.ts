@@ -3,6 +3,9 @@ import type { BucketState } from "../../domain/bucket/Bucket";
 
 const BODY_COLOR = new Color(255, 255, 255, 255);
 const DISABLED_BODY_COLOR = new Color(215, 215, 215, 255);
+const SELECTED_BODY_COLOR = new Color(232, 246, 255, 255);
+const MERGE_READY_BODY_COLOR = new Color(255, 246, 220, 255);
+const ERROR_BODY_COLOR = new Color(255, 224, 221, 255);
 const EMPTY_FILL_COLOR = new Color(255, 255, 255, 0);
 const FULL_BADGE_COLOR = new Color(255, 255, 255, 255);
 const TEXT_COLOR = new Color(38, 48, 45, 255);
@@ -27,6 +30,9 @@ const COLOR_TINTS: Record<number, Color> = {
 
 export interface BucketVisualRenderOptions {
   disabled?: boolean;
+  selected?: boolean;
+  mergeReady?: boolean;
+  error?: boolean;
   scale?: number;
 }
 
@@ -49,7 +55,7 @@ export function renderBucketVisual(
   const fullBadge = root.getChildByName("FullBadge") ?? null;
 
   if (body !== null) {
-    body.color = options.disabled ? DISABLED_BODY_COLOR : BODY_COLOR;
+    body.color = getBodyColor(options);
   }
 
   if (bucket === undefined) {
@@ -80,6 +86,22 @@ export function renderBucketVisual(
       badgeSprite.color = FULL_BADGE_COLOR;
     }
   }
+}
+
+function getBodyColor(options: BucketVisualRenderOptions): Color {
+  if (options.error) {
+    return ERROR_BODY_COLOR;
+  }
+  if (options.disabled) {
+    return DISABLED_BODY_COLOR;
+  }
+  if (options.selected) {
+    return SELECTED_BODY_COLOR;
+  }
+  if (options.mergeReady) {
+    return MERGE_READY_BODY_COLOR;
+  }
+  return BODY_COLOR;
 }
 
 export function clearBucketVisual(root: Node | null): void {

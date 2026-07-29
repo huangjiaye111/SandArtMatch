@@ -1,6 +1,7 @@
 import { _decorator, Button, Color, Component, Label, Layout, Node, UITransform } from "cc";
 import type { BucketState } from "../../domain/bucket/Bucket";
 import { clearBucketVisual, renderBucketVisual } from "./BucketVisualView";
+import type { BattlePresentationEvent } from "./BattleViewContract";
 import type { BattleUiActions } from "./BattleViewContract";
 
 const { ccclass, property } = _decorator;
@@ -59,13 +60,14 @@ export class BucketPoolView extends Component {
     this.applyStableLayout();
     this.renderedBuckets = buckets;
     if (this.titleLabel !== null) {
-      this.titleLabel.string = "Bucket Pool";
+      this.titleLabel.node.active = false;
+      this.titleLabel.string = "";
     }
 
     for (let index = 0; index < this.bucketLabels.length; index += 1) {
       const bucket = buckets[index];
-      this.bucketLabels[index].string =
-        bucket === undefined ? `Bucket ${index + 1}` : `C${bucket.colorId} ${bucket.amount}/${bucket.capacity}`;
+      this.bucketLabels[index].string = bucket === undefined ? "" : `${bucket.amount}/${bucket.capacity}`;
+      this.bucketLabels[index].node.active = bucket !== undefined;
       this.styleBucketLabel(this.bucketLabels[index]);
       renderBucketVisual(this.getBucketVisualRoot(index), bucket, {
         disabled: !this.isBucketButtonEnabled(index, bucket),
@@ -75,14 +77,28 @@ export class BucketPoolView extends Component {
     this.refreshButtonStates();
   }
 
+  public playFeedback(events: readonly BattlePresentationEvent[]): void {
+    for (const event of events) {
+      if (event.type === "bucketClicked") {
+        this.flashBucket(event.bucketInstanceId, "selected");
+      } else if (event.type === "invalidClick") {
+        this.flashFirstUnavailableBucket();
+      } else if (event.type === "undoRestored") {
+        this.flashAvailableBuckets();
+      }
+    }
+  }
+
   public clear(): void {
     this.applyStableLayout();
     this.renderedBuckets = [];
     if (this.titleLabel !== null) {
-      this.titleLabel.string = "Bucket Pool";
+      this.titleLabel.node.active = false;
+      this.titleLabel.string = "";
     }
     for (let index = 0; index < this.bucketLabels.length; index += 1) {
-      this.bucketLabels[index].string = `Bucket ${index + 1}`;
+      this.bucketLabels[index].string = "";
+      this.bucketLabels[index].node.active = false;
       this.styleBucketLabel(this.bucketLabels[index]);
       clearBucketVisual(this.getBucketVisualRoot(index));
     }
@@ -189,9 +205,57 @@ export class BucketPoolView extends Component {
     }
     const bucket = this.renderedBuckets[index];
     if (bucket === undefined || bucket.status !== "available") {
+      this.flashBucketAt(index, "error");
       return;
     }
+    this.flashBucketAt(index, "selected");
     this.actions?.selectBucket(bucket.instanceId);
+  }
+
+  private flashBucket(bucketInstanceId: string, kind: "selected" | "error"): void {
+    const index = this.renderedBuckets.findIndex((bucket) => bucket.instanceId === bucketInstanceId);
+    if (index >= 0) {
+      this.flashBucketAt(index, kind);
+    }
+  }
+
+  private flashFirstUnavailableBucket(): void {
+    const index = this.renderedBuckets.findIndex((bucket) => bucket.status !== "available");
+    this.flashBucketAt(index >= 0 ? index : 0, "error");
+  }
+
+  private flashAvailableBuckets(): void {
+    for (let index = 0; index < this.renderedBuckets.length; index += 1) {
+      if (this.renderedBuckets[index].status === "available") {
+        this.flashBucketAt(index, "selected");
+      }
+    }
+  }
+
+  private flashBucketAt(index: number, kind: "selected" | "error"): void {
+    const bucket = this.renderedBuckets[index];
+    const root = this.getBucketVisualRoot(index);
+    if (bucket === undefined || root === null) {
+      return;
+    }
+
+    const position = BUCKET_POSITIONS[index];
+    if (position !== undefined) {
+      root.setPosition(0, kind === "selected" ? 22 : 14, 0);
+    }
+    renderBucketVisual(root, bucket, {
+      disabled: !this.isBucketButtonEnabled(index, bucket),
+      error: kind === "error",
+      selected: kind === "selected",
+      scale: kind === "selected" ? BUCKET_POOL_SCALE * 1.06 : BUCKET_POOL_SCALE,
+    });
+    this.scheduleOnce(() => {
+      root.setPosition(0, 14, 0);
+      renderBucketVisual(root, bucket, {
+        disabled: !this.isBucketButtonEnabled(index, bucket),
+        scale: BUCKET_POOL_SCALE,
+      });
+    }, kind === "error" ? 0.18 : 0.22);
   }
 }
 

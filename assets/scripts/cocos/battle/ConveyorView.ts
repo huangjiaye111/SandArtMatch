@@ -1,6 +1,7 @@
 import { _decorator, Color, Component, Label, Layout, Node, UITransform } from "cc";
 import type { BucketState } from "../../domain/bucket/Bucket";
 import type { ConveyorState } from "../../domain/bucket/Conveyor";
+import type { BattlePresentationEvent } from "./BattleViewContract";
 import { clearBucketVisual, renderBucketVisual } from "./BucketVisualView";
 
 const { ccclass, property } = _decorator;
@@ -22,11 +23,12 @@ export class ConveyorView extends Component {
   public renderConveyor(conveyor: ConveyorState, buckets: readonly BucketState[]): void {
     this.applyStableLayout();
     if (this.titleLabel !== null) {
-      this.titleLabel.string = "Conveyor";
-      this.styleLabel(this.titleLabel, 22, 28);
+      this.titleLabel.node.active = false;
+      this.titleLabel.string = "";
     }
 
     const bucketsById = new Map(buckets.map((bucket) => [bucket.instanceId, bucket]));
+    const mergeReadyIds = collectMergeReadyBucketIds(conveyor, bucketsById);
     for (let index = 0; index < this.slotLabels.length; index += 1) {
       const label = this.slotLabels[index];
       const bucketId = conveyor.slots[index] ?? null;
@@ -34,20 +36,66 @@ export class ConveyorView extends Component {
       label.string = bucket === undefined ? "" : `${bucket.amount}/${bucket.capacity}`;
       label.node.active = bucket !== undefined;
       this.styleLabel(label, 15, 18);
-      renderBucketVisual(this.getBucketVisualRoot(index), bucket, { scale: CONVEYOR_BUCKET_SCALE });
+      renderBucketVisual(this.getBucketVisualRoot(index), bucket, {
+        mergeReady: bucket !== undefined && mergeReadyIds.has(bucket.instanceId),
+        scale: CONVEYOR_BUCKET_SCALE,
+      });
+    }
+  }
+
+  public playFeedback(events: readonly BattlePresentationEvent[]): void {
+    for (const event of events) {
+      if (event.type === "bucketEnteredConveyor" && event.slotIndex >= 0) {
+        this.flashSlot(event.slotIndex, "enter");
+      } else if (event.type === "merge" && event.slotIndex !== null) {
+        this.flashSlot(event.slotIndex, "merge");
+      } else if (event.type === "fullBucketLeft") {
+        for (const bucketId of event.bucketInstanceIds) {
+          this.flashBucketId(bucketId);
+        }
+      } else if (event.type === "undoRestored") {
+        this.flashAllSlots();
+      }
     }
   }
 
   public clear(): void {
     this.applyStableLayout();
     if (this.titleLabel !== null) {
-      this.titleLabel.string = "Conveyor";
-      this.styleLabel(this.titleLabel, 22, 28);
+      this.titleLabel.node.active = false;
+      this.titleLabel.string = "";
     }
     for (let index = 0; index < this.slotLabels.length; index += 1) {
       this.slotLabels[index].string = "";
       this.slotLabels[index].node.active = false;
       clearBucketVisual(this.getBucketVisualRoot(index));
+    }
+  }
+
+  private flashSlot(index: number, kind: "enter" | "merge"): void {
+    const slot = this.node.getChildByName("ConveyorSlotArtLayer")?.children[index] ?? null;
+    const visual = this.getBucketVisualRoot(index);
+    const scale = kind === "merge" ? 1.12 : 1.06;
+    slot?.setScale(scale, scale, 1);
+    visual?.setScale(CONVEYOR_BUCKET_SCALE * scale, CONVEYOR_BUCKET_SCALE * scale, 1);
+    this.scheduleOnce(() => {
+      slot?.setScale(1, 1, 1);
+      visual?.setScale(CONVEYOR_BUCKET_SCALE, CONVEYOR_BUCKET_SCALE, 1);
+    }, kind === "merge" ? 0.32 : 0.16);
+  }
+
+  private flashBucketId(bucketInstanceId: string): void {
+    for (let index = 0; index < this.slotLabels.length; index += 1) {
+      const root = this.getBucketVisualRoot(index);
+      if (root?.active === true && root.name.includes(bucketInstanceId)) {
+        this.flashSlot(index, "enter");
+      }
+    }
+  }
+
+  private flashAllSlots(): void {
+    for (let index = 0; index < this.slotLabels.length; index += 1) {
+      this.flashSlot(index, "enter");
     }
   }
 
@@ -88,6 +136,35 @@ export class ConveyorView extends Component {
     label.shadowOffset.set(1, -1);
     label.shadowBlur = 1;
   }
+}
+
+function collectMergeReadyBucketIds(
+  conveyor: ConveyorState,
+  bucketsById: ReadonlyMap<string, BucketState>,
+): ReadonlySet<string> {
+  const idsByColor = new Map<number, string[]>();
+  for (const bucketId of conveyor.slots) {
+    if (bucketId === null) {
+      continue;
+    }
+    const bucket = bucketsById.get(bucketId);
+    if (bucket === undefined) {
+      continue;
+    }
+    const ids = idsByColor.get(bucket.colorId) ?? [];
+    ids.push(bucket.instanceId);
+    idsByColor.set(bucket.colorId, ids);
+  }
+
+  const ready = new Set<string>();
+  for (const ids of idsByColor.values()) {
+    if (ids.length >= 3) {
+      for (const id of ids.slice(0, 3)) {
+        ready.add(id);
+      }
+    }
+  }
+  return ready;
 }
 
 function setContentSize(node: Node | null | undefined, width: number, height: number): void {

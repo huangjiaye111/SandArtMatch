@@ -9,6 +9,7 @@ import { BucketPoolView } from "./BucketPoolView";
 import { ConveyorView } from "./ConveyorView";
 import { SandGridView } from "./SandGridView";
 import { ToolbarView } from "./ToolbarView";
+import type { BattlePresentationEvent } from "./BattleViewContract";
 
 const { ccclass, property } = _decorator;
 
@@ -83,6 +84,12 @@ export class BattleRoot extends Component implements BattleView {
 
   public renderBucketPool(buckets: BattleViewSnapshot["buckets"]): void {
     this.bucketPoolView?.renderBucketPool(buckets);
+  }
+
+  public playFeedback(events: readonly BattlePresentationEvent[]): void {
+    this.conveyorView?.playFeedback(events);
+    this.bucketPoolView?.playFeedback(events);
+    this.toolbarView?.playFeedback(events);
   }
 
   public showFeedback(message: string): void {

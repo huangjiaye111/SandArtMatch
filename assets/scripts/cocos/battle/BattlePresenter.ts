@@ -1,6 +1,12 @@
-import { BattlePhase, type BattleViewSnapshot } from "../../domain/battle/BattleState";
+import {
+  BattlePhase,
+  type BattleActionResult,
+  type BattleStageEvent,
+  type BattleUndoResult,
+  type BattleViewSnapshot,
+} from "../../domain/battle/BattleState";
 import type { BattleStateMachine } from "../../domain/battle/BattleStateMachine";
-import type { BattleView } from "./BattleViewContract";
+import type { BattlePresentationEvent, BattleView } from "./BattleViewContract";
 
 export class BattlePresenter {
   private inputEnabled = true;
@@ -39,6 +45,7 @@ export class BattlePresenter {
     try {
       const result = this.machine.selectBucket(bucketInstanceId);
       this.sync(result.snapshot, result.rejectReason);
+      this.view.playFeedback(toPresentationEvents(result));
     } finally {
       this.isHandlingAction = false;
       const snapshot = this.machine.snapshot();
@@ -59,6 +66,7 @@ export class BattlePresenter {
     try {
       const result = this.machine.undo();
       this.sync(result.snapshot, result.rejectReason);
+      this.view.playFeedback(toUndoPresentationEvents(result));
     } finally {
       this.isHandlingAction = false;
       const snapshot = this.machine.snapshot();
@@ -84,11 +92,13 @@ export class BattlePresenter {
 
     if (snapshot.phase === BattlePhase.Won) {
       this.view.showWin();
+      this.view.playFeedback([{ type: "victory" }]);
       return;
     }
 
     if (snapshot.phase === BattlePhase.Failed) {
       this.view.showLose(failureReason);
+      this.view.playFeedback([{ type: "deadlock", message: failureReason ?? "Deadlock" }]);
       return;
     }
 
@@ -99,6 +109,75 @@ export class BattlePresenter {
     } else {
       this.view.setLevelText(this.levelText);
     }
+  }
+}
+
+function toPresentationEvents(result: BattleActionResult): readonly BattlePresentationEvent[] {
+  if (!result.accepted) {
+    return Object.freeze([
+      {
+        type: "invalidClick",
+        message: formatFailureReason(result.rejectReason ?? "Input locked"),
+      },
+    ]);
+  }
+
+  const events: BattlePresentationEvent[] = [
+    {
+      type: "bucketClicked",
+      bucketInstanceId: result.bucketInstanceId,
+    },
+  ];
+
+  for (const stageEvent of result.events) {
+    appendStagePresentationEvent(events, stageEvent);
+  }
+
+  return Object.freeze(events);
+}
+
+function toUndoPresentationEvents(result: BattleUndoResult): readonly BattlePresentationEvent[] {
+  if (!result.accepted) {
+    return Object.freeze([
+      {
+        type: "invalidClick",
+        message: formatFailureReason(result.rejectReason ?? "Input locked"),
+      },
+    ]);
+  }
+
+  return Object.freeze([{ type: "undoRestored" }]);
+}
+
+function appendStagePresentationEvent(events: BattlePresentationEvent[], stageEvent: BattleStageEvent): void {
+  switch (stageEvent.type) {
+    case "bucketEnqueued":
+      events.push({
+        type: "bucketEnteredConveyor",
+        bucketInstanceId: stageEvent.bucketInstanceId,
+        slotIndex: stageEvent.slotIndex,
+      });
+      return;
+    case "mergeResolved":
+      if (stageEvent.result.merged) {
+        events.push({
+          type: "merge",
+          bucketInstanceIds: stageEvent.result.candidate?.bucketInstanceIds ?? [],
+          insertedBucketInstanceId: stageEvent.result.mergedBucket?.instanceId ?? null,
+          slotIndex: stageEvent.result.insertIndex,
+        });
+      }
+      return;
+    case "bucketCompleteResolved":
+      if (stageEvent.completedBucketInstanceIds.length > 0) {
+        events.push({
+          type: "fullBucketLeft",
+          bucketInstanceIds: stageEvent.completedBucketInstanceIds,
+        });
+      }
+      return;
+    default:
+      return;
   }
 }
 

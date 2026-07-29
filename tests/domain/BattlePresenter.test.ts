@@ -6,7 +6,7 @@ import type { BucketState } from "../../assets/scripts/domain/bucket/Bucket.ts";
 import type { ConveyorState } from "../../assets/scripts/domain/bucket/Conveyor.ts";
 import type { SandGridSnapshot } from "../../assets/scripts/domain/core/SandGrid.ts";
 import { BattlePresenter } from "../../assets/scripts/cocos/battle/BattlePresenter.ts";
-import type { BattleView } from "../../assets/scripts/cocos/battle/BattleViewContract.ts";
+import type { BattlePresentationEvent, BattleView } from "../../assets/scripts/cocos/battle/BattleViewContract.ts";
 
 class FakeBattleView implements BattleView {
   public levelText = "";
@@ -17,6 +17,7 @@ class FakeBattleView implements BattleView {
   public buckets: readonly BucketState[] = [];
   public result: "hidden" | "win" | "lose" = "hidden";
   public feedback = "";
+  public presentationEvents: BattlePresentationEvent[] = [];
   public undoRejected = false;
   public initializedSnapshot: BattleViewSnapshot | null = null;
   public clearCount = 0;
@@ -48,6 +49,10 @@ class FakeBattleView implements BattleView {
 
   public renderBucketPool(buckets: readonly BucketState[]): void {
     this.buckets = buckets;
+  }
+
+  public playFeedback(events: readonly BattlePresentationEvent[]): void {
+    this.presentationEvents.push(...events);
   }
 
   public showFeedback(message: string): void {
@@ -102,6 +107,8 @@ describe("BattlePresenter", () => {
     assert.equal(view.undoEnabled, true);
     assert.equal(view.inputEnabled, true);
     assert.equal(view.result, "hidden");
+    assert.equal(view.presentationEvents.some((event) => event.type === "bucketEnteredConveyor"), true);
+    assert.equal(view.presentationEvents.some((event) => event.type === "fullBucketLeft"), true);
   });
 
   it("routes undo through BattleStateMachine and restores the rendered snapshot", () => {
@@ -117,6 +124,7 @@ describe("BattlePresenter", () => {
     assert.equal(view.buckets.find((bucket) => bucket.instanceId === "t01-red-a")?.status, "available");
     assert.equal(view.undoEnabled, false);
     assert.deepEqual(view.conveyor?.slots, [null, null, null, null, null, null]);
+    assert.equal(view.presentationEvents.some((event) => event.type === "undoRestored"), true);
   });
 
   it("does not forward bucket clicks while input is disabled", () => {
@@ -174,6 +182,7 @@ describe("BattlePresenter", () => {
     assert.equal(machine.snapshot().actionIndex, 0);
     assert.equal(view.undoRejected, true);
     assert.equal(view.feedback, "Nothing to undo");
+    assert.equal(view.presentationEvents.some((event) => event.type === "invalidClick"), true);
   });
 
   it("restores the level text after a later successful render", () => {

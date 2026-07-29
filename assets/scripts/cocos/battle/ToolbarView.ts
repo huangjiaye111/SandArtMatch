@@ -1,4 +1,5 @@
-import { _decorator, Button, Color, Component, Label, Node, UITransform } from "cc";
+import { _decorator, Button, Color, Component, Label, Node, Sprite, UITransform } from "cc";
+import type { BattlePresentationEvent } from "./BattleViewContract";
 import type { BattleUiActions } from "./BattleViewContract";
 
 const { ccclass, property } = _decorator;
@@ -8,6 +9,9 @@ const BUTTON_TEXT_COLOR = new Color(255, 255, 255, 255);
 const TEXT_OUTLINE_COLOR = new Color(255, 255, 255, 210);
 const BUTTON_OUTLINE_COLOR = new Color(38, 48, 45, 135);
 const SHADOW_COLOR = new Color(38, 48, 45, 90);
+const UTILITY_NORMAL_COLOR = new Color(47, 183, 164, 255);
+const UTILITY_DISABLED_COLOR = new Color(184, 192, 186, 255);
+const UTILITY_PRESSED_COLOR = new Color(34, 141, 130, 255);
 
 @ccclass("ToolbarView")
 export class ToolbarView extends Component {
@@ -50,23 +54,39 @@ export class ToolbarView extends Component {
   }
 
   public setUndoEnabled(enabled: boolean): void {
-    this.applyToolbarLayout();
     if (this.undoButton !== null) {
       this.undoButton.interactable = enabled;
     }
+    this.applyToolbarLayout();
   }
 
   public showWin(): void {
-    this.setResult("Win");
+    this.setResult("Victory!", "win");
   }
 
   public showLose(reason?: string): void {
-    this.setResult(reason === undefined || reason.length === 0 ? "Lose" : `Lose: ${reason}`);
+    this.setResult(reason === undefined || reason.length === 0 ? "Deadlock" : "Deadlock", "deadlock");
   }
 
   public showFeedback(message: string): void {
     if (this.levelLabel !== null) {
       this.levelLabel.string = message.length === 0 ? "Ready" : message;
+    }
+  }
+
+  public playFeedback(events: readonly BattlePresentationEvent[]): void {
+    for (const event of events) {
+      if (event.type === "invalidClick") {
+        this.showFeedback(event.message);
+        this.flashButton(this.undoButton, "error");
+      } else if (event.type === "undoRestored") {
+        this.showFeedback("Undo restored");
+        this.flashButton(this.undoButton, "pressed");
+      } else if (event.type === "victory") {
+        this.flashResultPanel();
+      } else if (event.type === "deadlock") {
+        this.flashResultPanel();
+      }
     }
   }
 
@@ -117,11 +137,13 @@ export class ToolbarView extends Component {
     this.settingsHandler = null;
   }
 
-  private setResult(text: string): void {
+  private setResult(text: string, icon: "win" | "deadlock"): void {
     if (this.resultRoot !== null) {
       this.resultRoot.active = true;
+      this.resultRoot.setScale(0.96, 0.96, 1);
+      this.scheduleOnce(() => this.resultRoot?.setScale(1, 1, 1), 0.08);
     }
-    this.setResultIcon(text === "Win" ? "win" : "deadlock");
+    this.setResultIcon(icon);
     if (this.resultLabel !== null) {
       this.resultLabel.string = text;
       styleLabel(this.resultLabel, 42, 50, TEXT_COLOR, TEXT_OUTLINE_COLOR);
@@ -138,6 +160,30 @@ export class ToolbarView extends Component {
       setContentSize(this.levelLabel.node, 160, 46);
       styleLabel(this.levelLabel, 26, 32, TEXT_COLOR, TEXT_OUTLINE_COLOR);
     }
+  }
+
+  private flashButton(button: Button | null, kind: "pressed" | "error"): void {
+    if (button === null) {
+      return;
+    }
+    const background = button.node.getChildByName("Background");
+    const sprite = background?.getComponent(Sprite) ?? null;
+    if (sprite !== null) {
+      sprite.color = kind === "error" ? new Color(239, 106, 91, 255) : UTILITY_PRESSED_COLOR;
+    }
+    button.node.setScale(0.95, 0.95, 1);
+    this.scheduleOnce(() => {
+      button.node.setScale(1, 1, 1);
+      styleUtilityButton(button, button === this.settingsButton ? "Settings" : "Undo");
+    }, kind === "error" ? 0.16 : 0.12);
+  }
+
+  private flashResultPanel(): void {
+    if (this.resultRoot === null || !this.resultRoot.active) {
+      return;
+    }
+    this.resultRoot.setScale(0.96, 0.96, 1);
+    this.scheduleOnce(() => this.resultRoot?.setScale(1, 1, 1), 0.1);
   }
 
   private setResultIcon(state: "win" | "deadlock"): void {
@@ -164,6 +210,10 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
 
   const background = button.node.getChildByName("Background");
   setContentSize(background ?? null, width, 68);
+  const backgroundSprite = background?.getComponent(Sprite) ?? null;
+  if (backgroundSprite !== null) {
+    backgroundSprite.color = button.interactable ? UTILITY_NORMAL_COLOR : UTILITY_DISABLED_COLOR;
+  }
 
   const icon = button.node.getChildByName("Icon");
   if (icon !== null) {
@@ -176,7 +226,7 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
     label.string = label.string.length === 0 ? fallbackText : label.string;
     label.node.setPosition(18, 0, 0);
     setContentSize(label.node, fallbackText === "Settings" ? 104 : 88, 36);
-    styleLabel(label, fallbackText === "Settings" ? 22 : 24, 30, BUTTON_TEXT_COLOR, BUTTON_OUTLINE_COLOR);
+    styleLabel(label, fallbackText === "Settings" ? 22 : 24, 30, button.interactable ? BUTTON_TEXT_COLOR : new Color(255, 255, 255, 180), BUTTON_OUTLINE_COLOR);
   }
 }
 
