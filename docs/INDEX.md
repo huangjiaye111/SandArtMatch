@@ -31,6 +31,7 @@ Files under `docs/source/` are raw reference material. If source material confli
 ## Technical
 
 - `docs/technical/ARCHITECTURE.md`: gameplay-domain and Cocos presentation boundaries.
+- `docs/technical/BATTLE_ART_INTEGRATION_CONTRACT.md`: Battle runtime asset integration contract, including ownership, node contracts, replacement points, animation events, and performance budgets.
 - `docs/technical/DATA_SCHEMA.md`: proposed data structures and configuration schema.
 - `docs/technical/PERFORMANCE.md`: performance targets and validation notes.
 

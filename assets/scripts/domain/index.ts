@@ -12,4 +12,6 @@ export * from "./battle/Settlement";
 export * from "./battle/Outcome";
 export * from "./battle/BattleState";
 export * from "./battle/BattleStateMachine";
-export * from "./battle/UndoStack";
+export * from "./battle/BattleSimulation";
+export * from "./battle/BattleSimulationConfig";
+export * from "./battle/BattleSnapshot";

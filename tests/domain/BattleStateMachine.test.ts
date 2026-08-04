@@ -4,6 +4,7 @@ import { createBattleStateMachine } from "../../assets/scripts/domain/battle/Bat
 import { BattlePhase, type BattleActionResult, type BattleStageEvent } from "../../assets/scripts/domain/battle/BattleState.ts";
 import { createBucket, type BucketState } from "../../assets/scripts/domain/bucket/Bucket.ts";
 import { createConveyor } from "../../assets/scripts/domain/bucket/Conveyor.ts";
+import { getBucketPoolSelectionReason } from "../../assets/scripts/domain/bucket/BucketPool.ts";
 import { createSeededRandom } from "../../assets/scripts/domain/core/Random.ts";
 import { SandGrid } from "../../assets/scripts/domain/core/SandGrid.ts";
 
@@ -69,7 +70,7 @@ describe("BattleStateMachine", () => {
     assert.equal(result.accepted, true);
     assert.equal(result.beforePhase, BattlePhase.WaitingInput);
     assert.equal(result.afterPhase, BattlePhase.WaitingInput);
-    assert.deepEqual(result.phaseSequence, [
+    assert.deepEqual(result.phaseSequence.slice(0, 7), [
       BattlePhase.WaitingInput,
       BattlePhase.BucketEnqueue,
       BattlePhase.MergeResolve,
@@ -77,18 +78,17 @@ describe("BattleStateMachine", () => {
       BattlePhase.AbsorbResolve,
       BattlePhase.SandGravity,
       BattlePhase.BucketCompleteResolve,
-      BattlePhase.ResultCheck,
-      BattlePhase.WaitingInput,
     ]);
-    assert.deepEqual(result.events.map((event) => event.type), [
+    assert.deepEqual(result.phaseSequence.slice(-2), [BattlePhase.ResultCheck, BattlePhase.WaitingInput]);
+    assert.deepEqual(result.events.map((event) => event.type).slice(0, 6), [
       "bucketEnqueued",
       "mergeResolved",
       "exposedSandResolved",
       "absorbResolved",
       "sandGravityResolved",
       "bucketCompleteResolved",
-      "resultChecked",
     ]);
+    assert.equal(result.events.at(-1)?.type, "resultChecked");
     assert.deepEqual(result.snapshot.conveyor.slots, ["red", null, null, null, null, null]);
     assert.equal(bucketState(result, "red").amount, 1);
     assert.equal(bucketState(result, "red").status, "inConveyor");
@@ -109,6 +109,32 @@ describe("BattleStateMachine", () => {
     assert.equal(result.rejectReason, "bucketNotFound");
     assert.deepEqual(machine.snapshot(), before);
     assert.deepEqual(result.snapshot, before);
+  });
+
+  it("rejects deeper bucket candidates until the front bucket leaves the pool", () => {
+    const machine = createBattleStateMachine({
+      grid: SandGrid.empty(1, 1),
+      buckets: [
+        bucket("c0-front", 1),
+        bucket("c1-front", 2),
+        bucket("c2-front", 3),
+        bucket("c3-front", 4),
+        bucket("c0-second", 1),
+        bucket("c1-second", 2),
+        bucket("c2-second", 3),
+        bucket("c3-second", 4),
+      ],
+      random: createSeededRandom("column-front"),
+    });
+
+    const rejected = machine.selectBucket("c0-second");
+    const accepted = machine.selectBucket("c0-front");
+
+    assert.equal(rejected.accepted, false);
+    assert.equal(rejected.rejectReason, "bucketNotColumnFront");
+    assert.equal(accepted.accepted, true);
+    assert.equal(getBucketPoolSelectionReason(machine.snapshot().buckets, "c0-second"), null);
+    assert.equal(machine.snapshot().buckets.find((stored) => stored.instanceId === "c0-front")?.status, "inConveyor");
   });
 
   it("rejects full-conveyor input without treating full slots as failure", () => {
@@ -306,6 +332,8 @@ describe("BattleStateMachine", () => {
 
     assert.equal(gravityEvent.type, "sandGravityResolved");
     assert.equal(gravityEvent.result.totalMoves, 2);
+    assert.deepEqual(gravityEvent.settlementSteps.map((step) => step.kind), ["absorb", "gravity", "gravity"]);
+    assert.deepEqual(gravityEvent.settlementSteps.filter((step) => step.kind === "gravity").map((step) => step.iteration), [0, 1]);
     assert.deepEqual(result.snapshot.grid.cells, [null, null, 2]);
   });
 
@@ -326,7 +354,30 @@ describe("BattleStateMachine", () => {
 
     assert.equal(completeEvent.type, "bucketCompleteResolved");
     assert.deepEqual(completeEvent.completedBucketInstanceIds, ["front-full", "back-full"]);
+    assert.deepEqual(completeEvent.completedBucketSlotIndexes, [0, 2]);
     assert.deepEqual(result.snapshot.conveyor.slots, ["middle", "new", null, null, null, null]);
+  });
+
+  it("restarts to the initial deterministic battle snapshot", () => {
+    const machine = createBattleStateMachine({
+      grid: basicGrid(),
+      buckets: [bucket("red", 1, 3), bucket("blue", 2, 3)],
+      random: createSeededRandom("restart"),
+    });
+    const initial = machine.snapshot();
+
+    const selected = machine.selectBucket("red");
+    assert.equal(selected.accepted, true);
+    assert.notDeepEqual(machine.snapshot(), initial);
+
+    const restarted = machine.restart();
+
+    assert.equal(restarted.accepted, true);
+    assert.equal(restarted.action, "restart");
+    assert.equal(machine.currentPhase, BattlePhase.WaitingInput);
+    assert.equal(machine.canAcceptInput(), true);
+    assert.deepEqual(machine.snapshot(), initial);
+    assert.deepEqual(restarted.snapshot, initial);
   });
 
   it("returns Won after the sand grid is cleared", () => {
@@ -394,7 +445,7 @@ describe("BattleStateMachine", () => {
     assert.deepEqual(machine.snapshot(), before);
   });
 
-  it("discards failed-operation undo history and can continue after a settlement exception", () => {
+  it("rolls back a failed operation and can continue after a settlement exception", () => {
     const machine = createBattleStateMachine({
       grid: basicGrid(),
       buckets: [bucket("red", 1, 3), bucket("blue", 2, 3)],
@@ -422,11 +473,8 @@ describe("BattleStateMachine", () => {
     assert.equal(failed.errorMessage, "simulated gravity failure");
     assert.deepEqual(failed.snapshot, before);
     assert.equal(machine.currentPhase, BattlePhase.WaitingInput);
-    assert.equal(failed.snapshot.undoHistoryDepth, 0);
-    assert.equal(failed.snapshot.canUndo, false);
     assert.equal(retried.accepted, true);
     assert.equal(retried.snapshot.actionIndex, 1);
-    assert.equal(retried.snapshot.undoHistoryDepth, 1);
   });
 
   it("is deterministic for identical initial state and identical action sequence", () => {

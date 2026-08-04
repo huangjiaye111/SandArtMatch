@@ -15,9 +15,9 @@ Confirmed current implementation shape:
 - `assets/scripts/domain/config/TestLevels.ts` still uses a single built-in 4 x 4 test level.
 - `SandGridView` hides debug labels at runtime, but renders one `Node` plus one `Graphics` component per logical cell.
 - The current 4 x 4 grid cannot form a meaningful sand-art subject and leaves too much low-information space.
-- `SandGridView` renders final snapshots, but it has no formal API for exposed-cell highlight, absorption trails, gravity interpolation, or Undo redraw intent.
+- `SandGridView` renders final snapshots, but it has no formal API for exposed-cell highlight, absorption trails, gravity interpolation, or Restart redraw intent.
 - `BattleStateMachine` already emits read-only stage events for bucket enqueue, merge, exposed sand, absorption schedule, gravity result, bucket completion, and result check.
-- `BattlePresenter` currently maps only bucket click, bucket entry, merge, full bucket exit, Undo restored, victory, deadlock, and invalid click into `BattlePresentationEvent`.
+- `BattlePresenter` currently maps only bucket click, bucket entry, merge, full bucket exit, victory, deadlock, and invalid click into `BattlePresentationEvent`.
 - `exposedSandResolved`, `absorbResolved`, and `sandGravityResolved` data are available from the domain result but are not yet consumed by presentation feedback.
 - Current gravity result exposes aggregate counts and the settled grid snapshot, but not per-cell movement paths.
 - `BattleRoot` routes all player actions through `BattlePresenter` and `BattleStateMachine`; keep this route.
@@ -25,9 +25,9 @@ Confirmed current implementation shape:
 Planning judgment:
 
 - TASK019 should add or extend read-only presentation events if animation needs them.
-- Do not move absorption, exposure, gravity, merge, deadlock, or Undo rules into Cocos views.
+- Do not move absorption, exposure, gravity, merge, victory, deadlock, or Restart rules into Cocos views.
 - If smooth gravity needs per-cell paths, prefer adding deterministic domain settlement trace data or a presentation-only diff derived from before/after snapshots, without changing rule order.
-- Undo should immediately redraw the restored snapshot and cancel active feedback; it should not attempt to reverse previous animations.
+- Restart should immediately redraw the initial snapshot and cancel active feedback; it should not attempt to reverse previous animations.
 
 ## Prerequisites
 
@@ -59,7 +59,7 @@ Read before implementation:
 - Animate deterministic gravity settlement feedback after absorption.
 - Animate three-bucket merge feedback.
 - Animate full bucket completion and leaving feedback.
-- Ensure Undo immediately restores the correct visual state.
+- Ensure Restart immediately restores the correct visual state.
 - Rebalance SandCanvas, Conveyor, and BucketPool proportions for a showcase portrait battle.
 - Remove large black or undesigned runtime regions.
 - Convert bucket state from debug labels to formal visual state.
@@ -116,7 +116,7 @@ Recommended first validation target:
 - Empty-cell ratio: roughly 8% to 18%, enough to show holes, gravity, and background without making the canvas sparse.
 - Subject: one original, simple, readable sand-art image such as a stylized sunburst shell, workshop flower, gem jar, or abstract sand mandala. Avoid any recognizable copied character, mascot, logo, or game screenshot composition.
 - Structure: large contiguous colored regions plus smaller accent regions, so absorption visibly changes the picture.
-- Gameplay function: bucket queue must allow meaningful absorption, at least one three-bucket merge, at least one full bucket exit, and at least one Undo-restorable intermediate state.
+- Gameplay function: bucket queue must allow meaningful absorption, at least one three-bucket merge, at least one full bucket exit, and Restart-restorable state.
 - Conveyor remains default 6 slots.
 - Bucket pool remains 2 rows x 4 columns.
 - Do not add multiple showcase levels in this task.
@@ -161,7 +161,7 @@ Add only read-only presentation data where needed:
 - `exposedSandHighlighted`: from `exposedSandResolved.exposedSand`.
 - `sandAbsorbed`: from `absorbResolved.schedule.allocations`.
 - `sandGravitySettled`: from `sandGravityResolved.result` and final grid snapshot.
-- Optional `sandCanvasRedrawn`: presentation-only marker for immediate redraw after Undo or full resync.
+- Optional `sandCanvasRedrawn`: presentation-only marker for immediate redraw after Restart or full resync.
 
 Rules:
 
@@ -190,11 +190,11 @@ On rejected input:
 - Keep domain snapshot unchanged.
 - Play short invalid click feedback on the relevant bucket, conveyor, or toolbar target.
 
-On Undo:
+On Restart:
 
 - Cancel active local feedback.
 - Hide terminal result UI if visible.
-- Immediately redraw SandCanvas, Conveyor, and BucketPool from the restored snapshot.
+- Immediately redraw SandCanvas, Conveyor, and BucketPool from the initial snapshot.
 - Play only a brief non-rule-changing confirmation, such as a canvas shimmer or toolbar pulse.
 
 ## Layout And Visual Proportion
@@ -246,12 +246,12 @@ Rules:
 ## Architecture Constraints
 
 - `SandGrid` remains pure domain two-dimensional data.
-- Views must not implement absorption, gravity, merge, win, deadlock, or Undo rules.
+- Views must not implement absorption, gravity, merge, win, deadlock, or Restart rules.
 - UI components must not directly mutate gameplay state.
 - Player actions continue through `BattleStateMachine`.
 - Animation only consumes settlement results already determined by `BattleStateMachine`.
 - Visual particles and trails are presentation-only and separate from logical grid cells.
-- Undo restores from snapshots; it does not reverse domain logic.
+- Restart restores the initial snapshot; it does not reverse domain logic.
 - Do not modify the core settlement order: enqueue, merge, exposed sand, absorption, gravity, bucket completion, result check.
 - Do not use `Math.random()` in gameplay logic. For deterministic visual variation tied to gameplay state, use seeded or coordinate-derived deterministic values.
 - Do not add production dependencies without approval.
@@ -291,8 +291,8 @@ Expected test coverage:
 - `Math.random()` ban continues to pass.
 - Level loader accepts the single high-density showcase level.
 - Showcase level dimensions, cell count, color ids, and bucket queue are deterministic and valid.
-- `BattlePresenter` maps exposed, absorption, gravity, merge, full exit, Undo, invalid input, victory, and deadlock into read-only presentation events.
-- Undo redraw path is testable through fake `BattleView` without loading Cocos.
+- `BattlePresenter` maps exposed, absorption, gravity, merge, full exit, invalid input, victory, and deadlock into read-only presentation events.
+- Restart redraw path is testable through fake `BattleView` without loading Cocos.
 - Presentation event tests must not require loading `Battle.scene`.
 
 ## Cocos Manual Acceptance
@@ -309,7 +309,7 @@ Use Cocos Creator and Funplay MCP during implementation validation:
 - Confirm gravity feedback appears after absorption and final canvas matches the settled domain snapshot.
 - Confirm three-bucket merge feedback is clear and does not alter rules.
 - Confirm full buckets complete and leave the conveyor.
-- Confirm Undo immediately restores the correct SandCanvas, Conveyor, BucketPool, result panel, and toolbar state.
+- Confirm Restart immediately restores the correct SandCanvas, Conveyor, BucketPool, result panel, and toolbar state.
 - Confirm no large black or undesigned screen region remains.
 - Confirm bucket states read as formal UI, not debug labels.
 - Record FPS, draw calls, node count, active node count, graphics count, labels, texture memory, and console errors/warnings.
@@ -324,9 +324,9 @@ Use Cocos Creator and Funplay MCP during implementation validation:
 - Empty cells, background, and all used `colorId` values are easy to tell apart.
 - Formal runtime does not show debug text grid UI.
 - Exposed sand highlight is visible before absorption.
-- Absorption, gravity, merge, full bucket exit, invalid click, victory, deadlock, and Undo feedback are present.
+- Absorption, gravity, merge, full bucket exit, invalid click, victory, deadlock, and Restart feedback are present.
 - Feedback timing follows the existing settlement order and never changes domain rules.
-- Undo cancels stale feedback and immediately redraws from the restored snapshot.
+- Restart cancels stale feedback and immediately redraws from the initial snapshot.
 - Views do not implement gameplay rules or mutate domain state directly.
 - Player actions still route through `BattleStateMachine`.
 - Core settlement order is unchanged.

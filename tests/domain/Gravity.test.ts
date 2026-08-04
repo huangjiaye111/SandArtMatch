@@ -30,6 +30,11 @@ describe("Gravity", () => {
       iterations: 3,
       totalMoves: 3,
       hitIterationLimit: false,
+      moveTraces: [
+        { fromX: 1, fromY: 0, toX: 1, toY: 1, colorId: 1, iteration: 0 },
+        { fromX: 1, fromY: 1, toX: 1, toY: 2, colorId: 1, iteration: 1 },
+        { fromX: 1, fromY: 2, toX: 1, toY: 3, colorId: 1, iteration: 2 },
+      ],
     });
   });
 
@@ -73,7 +78,11 @@ describe("Gravity", () => {
       [null, null, null],
       [1, 2, 3],
     ]);
-    assert.deepEqual(result, { moved: true, moves: 1 });
+    assert.deepEqual(result, {
+      moved: true,
+      moves: 1,
+      moveTraces: [{ fromX: 1, fromY: 0, toX: 0, toY: 1, colorId: 1, iteration: 0 }],
+    });
   });
 
   it("moves down-right when down is blocked and only right-down is empty", () => {
@@ -92,7 +101,11 @@ describe("Gravity", () => {
       [null, null, null],
       [3, 2, 1],
     ]);
-    assert.deepEqual(result, { moved: true, moves: 1 });
+    assert.deepEqual(result, {
+      moved: true,
+      moves: 1,
+      moveTraces: [{ fromX: 1, fromY: 0, toX: 2, toY: 1, colorId: 1, iteration: 0 }],
+    });
   });
 
   it("uses the same seeded choice when both diagonals are empty", () => {
@@ -160,6 +173,7 @@ describe("Gravity", () => {
       iterations: 0,
       totalMoves: 0,
       hitIterationLimit: false,
+      moveTraces: [],
     });
   });
 
@@ -199,7 +213,11 @@ describe("Gravity", () => {
       [null, null, 2],
       [3, 1, 4],
     ]);
-    assert.deepEqual(result, { moved: true, moves: 1 });
+    assert.deepEqual(result, {
+      moved: true,
+      moves: 1,
+      moveTraces: [{ fromX: 0, fromY: 0, toX: 1, toY: 1, colorId: 1, iteration: 0 }],
+    });
     assert.equal(grid.countSand(), 4);
   });
 
@@ -217,6 +235,7 @@ describe("Gravity", () => {
       iterations: 0,
       totalMoves: 0,
       hitIterationLimit: false,
+      moveTraces: [],
     });
   });
 
@@ -239,6 +258,7 @@ describe("Gravity", () => {
       iterations: 0,
       totalMoves: 0,
       hitIterationLimit: false,
+      moveTraces: [],
     });
   });
 
@@ -257,6 +277,7 @@ describe("Gravity", () => {
       iterations: 1,
       totalMoves: 1,
       hitIterationLimit: true,
+      moveTraces: [{ fromX: 0, fromY: 0, toX: 0, toY: 1, colorId: 1, iteration: 0 }],
     });
   });
 

@@ -10,16 +10,12 @@ const TEXT_OUTLINE_COLOR = new Color(255, 255, 255, 210);
 const BUTTON_OUTLINE_COLOR = new Color(38, 48, 45, 135);
 const SHADOW_COLOR = new Color(38, 48, 45, 90);
 const UTILITY_NORMAL_COLOR = new Color(47, 183, 164, 255);
-const UTILITY_DISABLED_COLOR = new Color(184, 192, 186, 255);
 const UTILITY_PRESSED_COLOR = new Color(34, 141, 130, 255);
 
 @ccclass("ToolbarView")
 export class ToolbarView extends Component {
   @property(Label)
   public levelLabel: Label | null = null;
-
-  @property(Button)
-  public undoButton: Button | null = null;
 
   @property(Button)
   public settingsButton: Button | null = null;
@@ -31,19 +27,19 @@ export class ToolbarView extends Component {
   public resultLabel: Label | null = null;
 
   private actions: BattleUiActions | null = null;
-  private undoHandler: (() => void) | null = null;
   private settingsHandler: (() => void) | null = null;
+  private restartHandler: (() => void) | null = null;
 
   public setActions(actions: BattleUiActions): void {
     this.actions = actions;
     this.applyToolbarLayout();
+    this.ensureResultRestartButton();
     this.rebindButtons();
   }
 
   public clearActions(): void {
     this.actions = null;
     this.clearButtonHandlers();
-    this.setUndoEnabled(false);
   }
 
   public setLevelText(text: string): void {
@@ -51,13 +47,6 @@ export class ToolbarView extends Component {
       this.levelLabel.string = text;
       styleLabel(this.levelLabel, 26, 32, TEXT_COLOR, TEXT_OUTLINE_COLOR);
     }
-  }
-
-  public setUndoEnabled(enabled: boolean): void {
-    if (this.undoButton !== null) {
-      this.undoButton.interactable = enabled;
-    }
-    this.applyToolbarLayout();
   }
 
   public showWin(): void {
@@ -78,10 +67,6 @@ export class ToolbarView extends Component {
     for (const event of events) {
       if (event.type === "invalidClick") {
         this.showFeedback(event.message);
-        this.flashButton(this.undoButton, "error");
-      } else if (event.type === "undoRestored") {
-        this.showFeedback("Undo restored");
-        this.flashButton(this.undoButton, "pressed");
       } else if (event.type === "victory") {
         this.flashResultPanel();
       } else if (event.type === "deadlock") {
@@ -104,7 +89,6 @@ export class ToolbarView extends Component {
   public clear(): void {
     this.applyToolbarLayout();
     this.setLevelText("Level 1");
-    this.setUndoEnabled(true);
     this.hideResult();
   }
 
@@ -114,27 +98,37 @@ export class ToolbarView extends Component {
 
   private rebindButtons(): void {
     this.applyToolbarLayout();
+    this.ensureResultRestartButton();
     this.clearButtonHandlers();
-    if (this.undoButton !== null) {
-      this.undoHandler = () => this.actions?.undo();
-      this.undoButton.node.on(Button.EventType.CLICK, this.undoHandler, this);
+    const settingsButton = this.getSettingsButton();
+    if (settingsButton !== null) {
+      this.settingsHandler = () => {
+        this.flashButton(settingsButton, "pressed");
+        this.showFeedback("Settings");
+      };
+      settingsButton.node.on(Button.EventType.CLICK, this.settingsHandler, this);
     }
-
-    if (this.settingsButton !== null) {
-      this.settingsHandler = () => undefined;
-      this.settingsButton.node.on(Button.EventType.CLICK, this.settingsHandler, this);
+    const restartButton = this.getRestartButton();
+    if (restartButton !== null) {
+      this.restartHandler = () => {
+        this.flashButton(restartButton, "pressed", "Restart");
+        this.actions?.restart();
+      };
+      restartButton.node.on(Button.EventType.CLICK, this.restartHandler, this);
     }
   }
 
   private clearButtonHandlers(): void {
-    if (this.undoButton !== null && this.undoHandler !== null) {
-      this.undoButton.node.off(Button.EventType.CLICK, this.undoHandler, this);
+    const settingsButton = this.getSettingsButton();
+    if (settingsButton !== null && this.settingsHandler !== null) {
+      settingsButton.node.off(Button.EventType.CLICK, this.settingsHandler, this);
     }
-    if (this.settingsButton !== null && this.settingsHandler !== null) {
-      this.settingsButton.node.off(Button.EventType.CLICK, this.settingsHandler, this);
+    const restartButton = this.getRestartButton();
+    if (restartButton !== null && this.restartHandler !== null) {
+      restartButton.node.off(Button.EventType.CLICK, this.restartHandler, this);
     }
-    this.undoHandler = null;
     this.settingsHandler = null;
+    this.restartHandler = null;
   }
 
   private setResult(text: string, icon: "win" | "deadlock"): void {
@@ -151,18 +145,86 @@ export class ToolbarView extends Component {
   }
 
   private applyToolbarLayout(): void {
+    const settingsButton = this.getSettingsButton();
     this.levelLabel?.node.setPosition(-245, 0, 0);
-    this.undoButton?.node.setPosition(82, 0, 0);
-    this.settingsButton?.node.setPosition(234, 0, 0);
-    styleUtilityButton(this.undoButton, "Undo");
-    styleUtilityButton(this.settingsButton, "Settings");
+    settingsButton?.node.setPosition(234, 0, 0);
+    styleUtilityButton(settingsButton, "Settings");
+    const restartButton = this.getRestartButton();
+    if (restartButton !== null) {
+      restartButton.node.setPosition(0, -120, 0);
+      styleUtilityButton(restartButton, "Restart");
+    }
     if (this.levelLabel !== null) {
       setContentSize(this.levelLabel.node, 160, 46);
       styleLabel(this.levelLabel, 26, 32, TEXT_COLOR, TEXT_OUTLINE_COLOR);
     }
   }
 
-  private flashButton(button: Button | null, kind: "pressed" | "error"): void {
+  private getSettingsButton(): Button | null {
+    if (this.settingsButton !== null) {
+      return this.settingsButton;
+    }
+    return this.node.getChildByName("SettingsButton")?.getComponent(Button) ?? null;
+  }
+
+  private getRestartButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    return this.resultRoot.getChildByName("RestartButton")?.getComponent(Button) ?? null;
+  }
+
+  private ensureResultRestartButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    const existing = this.getRestartButton();
+    if (existing !== null) {
+      this.ensureRestartButtonLayout(existing);
+      return existing;
+    }
+    const buttonNode = new Node("RestartButton");
+    buttonNode.addComponent(UITransform);
+    buttonNode.addComponent(Sprite);
+    buttonNode.addComponent(Button);
+    this.resultRoot.addChild(buttonNode);
+
+    const background = new Node("Background");
+    background.addComponent(UITransform);
+    background.addComponent(Sprite);
+    buttonNode.addChild(background);
+
+    const labelNode = new Node("Label");
+    labelNode.addComponent(UITransform);
+    labelNode.addComponent(Label);
+    buttonNode.addChild(labelNode);
+
+    this.ensureRestartButtonLayout(buttonNode.getComponent(Button));
+    return buttonNode.getComponent(Button);
+  }
+
+  private ensureRestartButtonLayout(button: Button | null): void {
+    if (button === null) {
+      return;
+    }
+    const node = button.node;
+    setContentSize(node, 156, 60);
+    const background = node.getChildByName("Background") ?? null;
+    if (background !== null) {
+      setContentSize(background, 156, 60);
+    } else if (node.getComponent(Sprite) !== null) {
+      setContentSize(node, 156, 60);
+    }
+    const label = node.getChildByName("Label")?.getComponent(Label) ?? null;
+    if (label !== null) {
+      label.string = label.string.length === 0 ? "Restart" : label.string;
+      label.node.setPosition(0, 0, 0);
+      setContentSize(label.node, 120, 32);
+      styleLabel(label, 24, 30, BUTTON_TEXT_COLOR, BUTTON_OUTLINE_COLOR);
+    }
+  }
+
+  private flashButton(button: Button | null, kind: "pressed" | "error", fallbackText = "Settings"): void {
     if (button === null) {
       return;
     }
@@ -174,7 +236,7 @@ export class ToolbarView extends Component {
     button.node.setScale(0.95, 0.95, 1);
     this.scheduleOnce(() => {
       button.node.setScale(1, 1, 1);
-      styleUtilityButton(button, button === this.settingsButton ? "Settings" : "Undo");
+      styleUtilityButton(button, fallbackText);
     }, kind === "error" ? 0.16 : 0.12);
   }
 
@@ -205,14 +267,17 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
   }
   button.transition = Button.Transition.SCALE;
   button.zoomScale = 0.95;
-  const width = fallbackText === "Settings" ? 142 : 132;
+  const width = 142;
   setContentSize(button.node, width, 68);
 
   const background = button.node.getChildByName("Background");
   setContentSize(background ?? null, width, 68);
   const backgroundSprite = background?.getComponent(Sprite) ?? null;
+  const nodeSprite = background === null ? button.node.getComponent(Sprite) ?? null : null;
   if (backgroundSprite !== null) {
-    backgroundSprite.color = button.interactable ? UTILITY_NORMAL_COLOR : UTILITY_DISABLED_COLOR;
+    backgroundSprite.color = UTILITY_NORMAL_COLOR;
+  } else if (nodeSprite !== null) {
+    nodeSprite.color = UTILITY_NORMAL_COLOR;
   }
 
   const icon = button.node.getChildByName("Icon");
@@ -225,8 +290,8 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
   if (label !== null) {
     label.string = label.string.length === 0 ? fallbackText : label.string;
     label.node.setPosition(18, 0, 0);
-    setContentSize(label.node, fallbackText === "Settings" ? 104 : 88, 36);
-    styleLabel(label, fallbackText === "Settings" ? 22 : 24, 30, button.interactable ? BUTTON_TEXT_COLOR : new Color(255, 255, 255, 180), BUTTON_OUTLINE_COLOR);
+    setContentSize(label.node, 104, 36);
+    styleLabel(label, 22, 30, BUTTON_TEXT_COLOR, BUTTON_OUTLINE_COLOR);
   }
 }
 

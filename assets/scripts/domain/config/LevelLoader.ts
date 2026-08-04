@@ -1,4 +1,5 @@
 import { createBattleStateMachine, type BattleStateMachine } from "../battle/BattleStateMachine";
+import { createBattleSimulation, type BattleSimulation } from "../battle/BattleSimulation";
 import { createBucket, type Bucket } from "../bucket/Bucket";
 import { createConveyor, type ConveyorSystem } from "../bucket/Conveyor";
 import { createSeededRandom, type SeededRandom } from "../core/Random";
@@ -48,6 +49,16 @@ export function createLoadedLevelFromConfig(config: LevelConfig): LoadedLevel {
 export function createBattleStateMachineFromLevel(raw: RawLevelConfig): BattleStateMachine {
   const loaded = createLoadedLevel(raw);
   return createBattleStateMachine({
+    grid: loaded.grid,
+    buckets: loaded.bucketQueue,
+    conveyor: loaded.conveyor,
+    random: loaded.random,
+  });
+}
+
+export function createBattleSimulationFromLevel(raw: RawLevelConfig): BattleSimulation {
+  const loaded = createLoadedLevel(raw);
+  return createBattleSimulation({
     grid: loaded.grid,
     buckets: loaded.bucketQueue,
     conveyor: loaded.conveyor,

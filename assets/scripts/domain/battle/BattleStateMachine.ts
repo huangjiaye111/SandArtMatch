@@ -3,16 +3,10 @@ import {
   type BattleActionResult,
   type BattleRejectReason,
   type BattleStageEvent,
-  type BattleUndoResult,
+  type SettlementStep,
   type BattleViewSnapshot,
 } from "./BattleState";
-import {
-  DEFAULT_UNDO_HISTORY_LIMIT,
-  UndoStack,
-  cloneAndValidateBattleSnapshot,
-  createUndoStack,
-  type BattleSnapshot,
-} from "./UndoStack";
+import { cloneAndValidateBattleSnapshot, type BattleSnapshot } from "./BattleSnapshot";
 import {
   scheduleAbsorption,
   type AbsorbScheduleResult,
@@ -20,6 +14,7 @@ import {
 } from "./Settlement";
 import { detectDeadlock } from "./Outcome";
 import { Bucket, createBucket, type BucketState } from "../bucket/Bucket";
+import { getBucketPoolSelectionReason } from "../bucket/BucketPool";
 import { ConveyorSystem, createConveyor, type ConveyorState } from "../bucket/Conveyor";
 import { MergeSystem, createMergeSystem, type MergeResult } from "../bucket/Merge";
 import { detectExposedSand, type ExposedSandCell } from "../core/Exposure";
@@ -34,7 +29,6 @@ export interface BattleStateMachineOptions {
   readonly random: SeededRandom;
   readonly maxAbsorbCount?: number;
   readonly gravityOptions?: GravitySettleOptions;
-  readonly undoHistoryLimit?: number;
 }
 
 type BattleInternalSnapshot = BattleSnapshot;
@@ -47,13 +41,13 @@ export class BattleStateMachine {
   private conveyor: ConveyorSystem;
   private random: SeededRandom;
   private readonly mergeSystem: MergeSystem;
-  private readonly undoStack: UndoStack;
   private readonly maxAbsorbCount: number | undefined;
   private readonly gravityOptions: GravitySettleOptions;
   private bucketsById: Map<string, Bucket>;
   private bucketOrder: string[];
   private actionIndex: number;
   private isProcessing: boolean;
+  private readonly initialSnapshot: BattleInternalSnapshot;
 
   public constructor(options: BattleStateMachineOptions) {
     validateOptions(options);
@@ -63,7 +57,6 @@ export class BattleStateMachine {
     this.conveyor = createConveyor(options.conveyor?.maxSlots);
     this.random = SeededRandom.fromSnapshot(options.random.snapshot());
     this.mergeSystem = createMergeSystem();
-    this.undoStack = createUndoStack(options.undoHistoryLimit ?? DEFAULT_UNDO_HISTORY_LIMIT);
     this.maxAbsorbCount = options.maxAbsorbCount;
     this.gravityOptions = { ...(options.gravityOptions ?? {}) };
     this.bucketsById = new Map<string, Bucket>();
@@ -72,6 +65,7 @@ export class BattleStateMachine {
     this.isProcessing = false;
 
     this.loadInitialBuckets(options.buckets, options.conveyor);
+    this.initialSnapshot = this.createInternalSnapshot();
   }
 
   public get currentPhase(): BattlePhase {
@@ -94,21 +88,6 @@ export class BattleStateMachine {
     const rollbackSnapshot = this.createInternalSnapshot();
     const phaseSequence: BattlePhase[] = [beforePhase];
     const events: BattleStageEvent[] = [];
-    const undoSaveResult = this.undoStack.saveOperationSnapshot(rollbackSnapshot);
-    if (!undoSaveResult.saved) {
-      return this.freezeActionResult({
-        accepted: false,
-        action: "selectBucket",
-        bucketInstanceId,
-        beforePhase,
-        afterPhase: this.phaseValue,
-        phaseSequence: [beforePhase],
-        events,
-        snapshot: this.snapshot(),
-        rejectReason: "settlementError",
-        errorMessage: undoSaveResult.errorMessage ?? undoSaveResult.failureReason,
-      });
-    }
 
     this.isProcessing = true;
     try {
@@ -121,41 +100,7 @@ export class BattleStateMachine {
       const mergeResult = this.resolveMerge();
       events.push(Object.freeze({ type: "mergeResolved", phase: BattlePhase.MergeResolve, result: mergeResult }));
 
-      this.enterPhase(BattlePhase.ExposedSandResolve, phaseSequence);
-      const exposedSand = this.resolveExposedSand();
-      events.push(
-        Object.freeze({
-          type: "exposedSandResolved",
-          phase: BattlePhase.ExposedSandResolve,
-          exposedSand,
-        }),
-      );
-
-      this.enterPhase(BattlePhase.AbsorbResolve, phaseSequence);
-      const schedule = this.resolveAbsorption(exposedSand);
-      events.push(Object.freeze({ type: "absorbResolved", phase: BattlePhase.AbsorbResolve, schedule }));
-
-      this.enterPhase(BattlePhase.SandGravity, phaseSequence);
-      const gravity = this.resolveGravity();
-      events.push(
-        Object.freeze({
-          type: "sandGravityResolved",
-          phase: BattlePhase.SandGravity,
-          result: gravity,
-          grid: this.grid.snapshot(),
-        }),
-      );
-
-      this.enterPhase(BattlePhase.BucketCompleteResolve, phaseSequence);
-      const completedBucketInstanceIds = this.resolveCompletedBuckets();
-      events.push(
-        Object.freeze({
-          type: "bucketCompleteResolved",
-          phase: BattlePhase.BucketCompleteResolve,
-          completedBucketInstanceIds,
-          conveyor: this.conveyor.snapshot(),
-        }),
-      );
+      this.resolveSandUntilIdle(events, phaseSequence);
 
       this.enterPhase(BattlePhase.ResultCheck, phaseSequence);
       const outcome = detectDeadlock({
@@ -190,7 +135,6 @@ export class BattleStateMachine {
       });
     } catch (error) {
       this.restoreInternalSnapshot(rollbackSnapshot);
-      this.undoStack.discardLatest();
       this.isProcessing = false;
       return this.freezeActionResult({
         accepted: false,
@@ -207,83 +151,20 @@ export class BattleStateMachine {
     }
   }
 
-  public canUndo(): boolean {
-    return this.phaseValue === BattlePhase.WaitingInput && !this.isProcessing && this.undoStack.canUndo();
-  }
-
-  public clearUndoHistory(): void {
-    this.undoStack.clear();
-  }
-
-  public undo(): BattleUndoResult {
+  public restart(): BattleActionResult {
     const beforePhase = this.phaseValue;
-    const phaseSequence: BattlePhase[] = [beforePhase];
-
-    if (beforePhase === BattlePhase.Won) {
-      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleAlreadyWon");
-    }
-
-    if (beforePhase === BattlePhase.Failed) {
-      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleAlreadyFailed");
-    }
-
-    if (beforePhase !== BattlePhase.WaitingInput) {
-      return this.createRejectedUndoResult(beforePhase, phaseSequence, "battleNotWaitingInput");
-    }
-
-    if (!this.undoStack.canUndo()) {
-      return this.createRejectedUndoResult(beforePhase, phaseSequence, "emptyHistory");
-    }
-
-    const currentSnapshot = this.createInternalSnapshot();
-    this.isProcessing = true;
-    this.phaseValue = BattlePhase.Undoing;
-    phaseSequence.push(BattlePhase.Undoing);
-
-    const restoreResult = this.undoStack.peekLatest();
-    if (!restoreResult.restored || restoreResult.snapshot === undefined) {
-      this.restoreInternalSnapshot(currentSnapshot);
-      this.isProcessing = false;
-      return this.freezeUndoResult({
-        accepted: false,
-        action: "undo",
-        beforePhase,
-        afterPhase: this.phaseValue,
-        phaseSequence,
-        snapshot: this.snapshot(),
-        rejectReason: restoreResult.failureReason ?? "restoreError",
-        errorMessage: restoreResult.errorMessage,
-      });
-    }
-
-    try {
-      this.restoreInternalSnapshot(restoreResult.snapshot);
-      this.undoStack.discardLatest();
-      this.phaseValue = BattlePhase.WaitingInput;
-      phaseSequence.push(BattlePhase.WaitingInput);
-      this.isProcessing = false;
-      return this.freezeUndoResult({
-        accepted: true,
-        action: "undo",
-        beforePhase,
-        afterPhase: this.phaseValue,
-        phaseSequence,
-        snapshot: this.snapshot(),
-      });
-    } catch (error) {
-      this.restoreInternalSnapshot(currentSnapshot);
-      this.isProcessing = false;
-      return this.freezeUndoResult({
-        accepted: false,
-        action: "undo",
-        beforePhase,
-        afterPhase: this.phaseValue,
-        phaseSequence,
-        snapshot: this.snapshot(),
-        rejectReason: "restoreError",
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    }
+    this.restoreInternalSnapshot(this.initialSnapshot);
+    this.isProcessing = false;
+    return this.freezeActionResult({
+      accepted: true,
+      action: "restart",
+      bucketInstanceId: "",
+      beforePhase,
+      afterPhase: this.phaseValue,
+      phaseSequence: Object.freeze([beforePhase, this.phaseValue]),
+      events: Object.freeze([]),
+      snapshot: this.snapshot(),
+    });
   }
 
   public snapshot(): BattleViewSnapshot {
@@ -294,8 +175,6 @@ export class BattleStateMachine {
       buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
       random: this.random.snapshot(),
       actionIndex: this.actionIndex,
-      canUndo: this.canUndo(),
-      undoHistoryDepth: this.undoStack.historyDepth,
     });
   }
 
@@ -317,8 +196,15 @@ export class BattleStateMachine {
       return "bucketNotFound";
     }
 
-    if (bucket.status !== SELECTABLE_BUCKET_STATUS) {
+    const poolReason = getBucketPoolSelectionReason(this.snapshot().buckets, bucketInstanceId);
+    if (poolReason === "bucketNotFound") {
+      return "bucketNotFound";
+    }
+    if (poolReason === "bucketNotSelectable" || bucket.status !== SELECTABLE_BUCKET_STATUS) {
       return "bucketNotSelectable";
+    }
+    if (poolReason === "bucketNotColumnFront") {
+      return "bucketNotColumnFront";
     }
 
     if (this.conveyor.isFull()) {
@@ -428,6 +314,60 @@ export class BattleStateMachine {
 
   private resolveGravity(): GravitySettlementResult {
     return settleGravity(this.grid, this.random, this.gravityOptions);
+  }
+
+  private resolveSandUntilIdle(events: BattleStageEvent[], phaseSequence: BattlePhase[]): void {
+    const maxCycles = Math.max(2, this.grid.width * this.grid.height * 2);
+    let cycles = 0;
+
+    while (cycles < maxCycles) {
+      cycles += 1;
+
+      this.enterPhase(BattlePhase.ExposedSandResolve, phaseSequence);
+      const exposedSand = this.resolveExposedSand();
+      events.push(
+        Object.freeze({
+          type: "exposedSandResolved",
+          phase: BattlePhase.ExposedSandResolve,
+          exposedSand,
+        }),
+      );
+
+      this.enterPhase(BattlePhase.AbsorbResolve, phaseSequence);
+      const schedule = this.resolveAbsorption(exposedSand);
+      events.push(Object.freeze({ type: "absorbResolved", phase: BattlePhase.AbsorbResolve, schedule }));
+
+      this.enterPhase(BattlePhase.SandGravity, phaseSequence);
+      const gravity = this.resolveGravity();
+      events.push(
+        Object.freeze({
+          type: "sandGravityResolved",
+          phase: BattlePhase.SandGravity,
+          result: gravity,
+          grid: this.grid.snapshot(),
+          settlementSteps: createSettlementSteps(this.actionIndex, schedule, gravity),
+        }),
+      );
+
+      this.enterPhase(BattlePhase.BucketCompleteResolve, phaseSequence);
+      const preCompleteSlots = this.conveyor.snapshot().slots;
+      const completedBucketInstanceIds = this.resolveCompletedBuckets();
+      events.push(
+        Object.freeze({
+          type: "bucketCompleteResolved",
+          phase: BattlePhase.BucketCompleteResolve,
+          completedBucketInstanceIds,
+          completedBucketSlotIndexes: Object.freeze(completedBucketInstanceIds.map((instanceId) => preCompleteSlots.indexOf(instanceId))),
+          conveyor: this.conveyor.snapshot(),
+        }),
+      );
+
+      if (schedule.assignedCount === 0 && gravity.totalMoves === 0) {
+        return;
+      }
+    }
+
+    throw new Error("Sand settlement did not reach an idle state.");
   }
 
   private resolveCompletedBuckets(): readonly string[] {
@@ -607,34 +547,6 @@ export class BattleStateMachine {
     });
   }
 
-  private createRejectedUndoResult(
-    beforePhase: BattlePhase,
-    phaseSequence: BattlePhase[],
-    rejectReason: NonNullable<BattleUndoResult["rejectReason"]>,
-  ): BattleUndoResult {
-    return this.freezeUndoResult({
-      accepted: false,
-      action: "undo",
-      beforePhase,
-      afterPhase: this.phaseValue,
-      phaseSequence,
-      snapshot: this.snapshot(),
-      rejectReason,
-    });
-  }
-
-  private freezeUndoResult(result: BattleUndoResult): BattleUndoResult {
-    return Object.freeze({
-      accepted: result.accepted,
-      action: result.action,
-      beforePhase: result.beforePhase,
-      afterPhase: result.afterPhase,
-      phaseSequence: Object.freeze([...result.phaseSequence]),
-      snapshot: result.snapshot,
-      rejectReason: result.rejectReason,
-      errorMessage: result.errorMessage,
-    });
-  }
 }
 
 export function createBattleStateMachine(options: BattleStateMachineOptions): BattleStateMachine {
@@ -648,6 +560,38 @@ function freezeSandCell(cell: ExposedSandCell): AbsorbedSandCell {
     index: cell.index,
     colorId: cell.colorId,
   });
+}
+
+function createSettlementSteps(
+  actionId: number,
+  schedule: AbsorbScheduleResult,
+  gravity: GravitySettlementResult,
+): readonly SettlementStep[] {
+  const steps: SettlementStep[] = [];
+  for (const allocation of schedule.allocations) {
+    steps.push(Object.freeze({
+      kind: "absorb" as const,
+      actionId,
+      bucketId: allocation.bucketInstanceId,
+      cells: allocation.sand,
+      amountAfter: allocation.bucketAmountAfter,
+    }));
+  }
+
+  const gravityMovesByIteration = new Map<number, typeof gravity.moveTraces>();
+  for (const move of gravity.moveTraces) {
+    const moves = gravityMovesByIteration.get(move.iteration) ?? [];
+    gravityMovesByIteration.set(move.iteration, Object.freeze([...moves, move]));
+  }
+  for (const [iteration, moves] of [...gravityMovesByIteration.entries()].sort(([left], [right]) => left - right)) {
+    steps.push(Object.freeze({
+      kind: "gravity" as const,
+      actionId,
+      iteration,
+      moves,
+    }));
+  }
+  return Object.freeze(steps);
 }
 
 function validateOptions(options: BattleStateMachineOptions): void {
@@ -669,9 +613,6 @@ function validateOptions(options: BattleStateMachineOptions): void {
   if (options.maxAbsorbCount !== undefined && (!Number.isSafeInteger(options.maxAbsorbCount) || options.maxAbsorbCount < 0)) {
     throw new RangeError("BattleStateMachine maxAbsorbCount must be a non-negative safe integer.");
   }
-  if (options.undoHistoryLimit !== undefined && (!Number.isSafeInteger(options.undoHistoryLimit) || options.undoHistoryLimit <= 0)) {
-    throw new RangeError("BattleStateMachine undoHistoryLimit must be a positive safe integer.");
-  }
   for (const bucket of options.buckets) {
     if (!(bucket instanceof Bucket)) {
       throw new TypeError("BattleStateMachine buckets must be Bucket instances.");
@@ -687,10 +628,7 @@ function validateBucketInstanceId(bucketInstanceId: string): void {
 
 function isValidTransition(current: BattlePhase, next: BattlePhase): boolean {
   if (current === BattlePhase.WaitingInput) {
-    return next === BattlePhase.BucketEnqueue || next === BattlePhase.Undoing || next === BattlePhase.WaitingInput;
-  }
-  if (current === BattlePhase.Undoing) {
-    return next === BattlePhase.WaitingInput;
+    return next === BattlePhase.BucketEnqueue || next === BattlePhase.WaitingInput;
   }
   if (current === BattlePhase.BucketEnqueue) {
     return next === BattlePhase.MergeResolve;
@@ -708,7 +646,7 @@ function isValidTransition(current: BattlePhase, next: BattlePhase): boolean {
     return next === BattlePhase.BucketCompleteResolve;
   }
   if (current === BattlePhase.BucketCompleteResolve) {
-    return next === BattlePhase.ResultCheck;
+    return next === BattlePhase.ResultCheck || next === BattlePhase.ExposedSandResolve;
   }
   if (current === BattlePhase.ResultCheck) {
     return next === BattlePhase.WaitingInput || next === BattlePhase.Won || next === BattlePhase.Failed;

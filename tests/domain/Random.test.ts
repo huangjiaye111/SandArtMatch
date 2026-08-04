@@ -26,7 +26,7 @@ describe("SeededRandom", () => {
   });
 
   it("restores the same continuation after snapshot", () => {
-    const random = createSeededRandom("undo-state");
+    const random = createSeededRandom("restore-state");
     random.nextUint32();
     random.nextUint32();
 

@@ -3,10 +3,9 @@ import type { DeadlockDetectionResult } from "./Outcome";
 import type { BucketState } from "../bucket/Bucket";
 import type { ConveyorState } from "../bucket/Conveyor";
 import type { MergeResult } from "../bucket/Merge";
-import type { GravitySettlementResult } from "../core/Gravity";
+import type { GravityMoveTrace, GravitySettlementResult } from "../core/Gravity";
 import type { RandomSnapshot } from "../core/Random";
 import type { SandGridSnapshot } from "../core/SandGrid";
-import type { UndoFailureReason } from "./UndoStack";
 
 export const BattlePhase = Object.freeze({
   WaitingInput: "WaitingInput",
@@ -17,7 +16,6 @@ export const BattlePhase = Object.freeze({
   SandGravity: "SandGravity",
   BucketCompleteResolve: "BucketCompleteResolve",
   ResultCheck: "ResultCheck",
-  Undoing: "Undoing",
   Won: "Won",
   Failed: "Failed",
 } as const);
@@ -29,15 +27,9 @@ export type BattleRejectReason =
   | "battleAlreadyWon"
   | "bucketNotFound"
   | "bucketNotSelectable"
+  | "bucketNotColumnFront"
   | "conveyorFull"
   | "settlementError";
-
-export type BattleUndoRejectReason =
-  | "battleNotWaitingInput"
-  | "battleAlreadyWon"
-  | "battleAlreadyFailed"
-  | UndoFailureReason
-  | "restoreError";
 
 export interface BattleViewSnapshot {
   readonly phase: BattlePhase;
@@ -46,8 +38,6 @@ export interface BattleViewSnapshot {
   readonly buckets: readonly BucketState[];
   readonly random: RandomSnapshot;
   readonly actionIndex: number;
-  readonly canUndo: boolean;
-  readonly undoHistoryDepth: number;
 }
 
 export interface BucketEnqueuedEvent {
@@ -81,12 +71,29 @@ export interface SandGravityResolvedEvent {
   readonly phase: typeof BattlePhase.SandGravity;
   readonly result: GravitySettlementResult;
   readonly grid: SandGridSnapshot;
+  readonly settlementSteps: readonly SettlementStep[];
 }
+
+export type SettlementStep =
+  | {
+      readonly kind: "absorb";
+      readonly actionId: number;
+      readonly bucketId: string;
+      readonly cells: readonly AbsorbedSandCell[];
+      readonly amountAfter: number;
+    }
+  | {
+      readonly kind: "gravity";
+      readonly actionId: number;
+      readonly iteration: number;
+      readonly moves: readonly GravityMoveTrace[];
+    };
 
 export interface BucketCompleteResolvedEvent {
   readonly type: "bucketCompleteResolved";
   readonly phase: typeof BattlePhase.BucketCompleteResolve;
   readonly completedBucketInstanceIds: readonly string[];
+  readonly completedBucketSlotIndexes: readonly number[];
   readonly conveyor: ConveyorState;
 }
 
@@ -110,7 +117,7 @@ export type BattleStageEvent =
 
 export interface BattleActionResult {
   readonly accepted: boolean;
-  readonly action: "selectBucket";
+  readonly action: "selectBucket" | "restart";
   readonly bucketInstanceId: string;
   readonly beforePhase: BattlePhase;
   readonly afterPhase: BattlePhase;
@@ -118,16 +125,5 @@ export interface BattleActionResult {
   readonly events: readonly BattleStageEvent[];
   readonly snapshot: BattleViewSnapshot;
   readonly rejectReason?: BattleRejectReason;
-  readonly errorMessage?: string;
-}
-
-export interface BattleUndoResult {
-  readonly accepted: boolean;
-  readonly action: "undo";
-  readonly beforePhase: BattlePhase;
-  readonly afterPhase: BattlePhase;
-  readonly phaseSequence: readonly BattlePhase[];
-  readonly snapshot: BattleViewSnapshot;
-  readonly rejectReason?: BattleUndoRejectReason;
   readonly errorMessage?: string;
 }

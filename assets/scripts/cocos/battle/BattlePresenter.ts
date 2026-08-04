@@ -2,7 +2,6 @@ import {
   BattlePhase,
   type BattleActionResult,
   type BattleStageEvent,
-  type BattleUndoResult,
   type BattleViewSnapshot,
 } from "../../domain/battle/BattleState";
 import type { BattleStateMachine } from "../../domain/battle/BattleStateMachine";
@@ -33,7 +32,7 @@ export class BattlePresenter {
     this.view.setInputEnabled(enabled && this.machine.canAcceptInput());
   }
 
-  public selectBucket(bucketInstanceId: string): void {
+  public async selectBucket(bucketInstanceId: string): Promise<void> {
     if (!this.inputEnabled || this.isHandlingAction || !this.machine.canAcceptInput()) {
       this.view.showFeedback("Input locked");
       return;
@@ -41,37 +40,19 @@ export class BattlePresenter {
 
     this.isHandlingAction = true;
     this.view.setInputEnabled(false);
-    this.view.setUndoEnabled(false);
     try {
       const result = this.machine.selectBucket(bucketInstanceId);
-      this.sync(result.snapshot, result.rejectReason);
-      this.view.playFeedback(toPresentationEvents(result));
+      if (result.accepted) {
+        const events = toPresentationEvents(result);
+        void this.view.playFeedback(events);
+        this.sync(result.snapshot, result.rejectReason, { skipSandGrid: true });
+      } else {
+        this.sync(result.snapshot, result.rejectReason);
+        void this.view.playFeedback(toPresentationEvents(result));
+      }
     } finally {
       this.isHandlingAction = false;
-      const snapshot = this.machine.snapshot();
       this.view.setInputEnabled(this.inputEnabled && this.machine.canAcceptInput());
-      this.view.setUndoEnabled(this.inputEnabled && snapshot.canUndo);
-    }
-  }
-
-  public undo(): void {
-    if (!this.inputEnabled || this.isHandlingAction) {
-      this.view.showFeedback("Input locked");
-      return;
-    }
-
-    this.isHandlingAction = true;
-    this.view.setInputEnabled(false);
-    this.view.setUndoEnabled(false);
-    try {
-      const result = this.machine.undo();
-      this.sync(result.snapshot, result.rejectReason);
-      this.view.playFeedback(toUndoPresentationEvents(result));
-    } finally {
-      this.isHandlingAction = false;
-      const snapshot = this.machine.snapshot();
-      this.view.setInputEnabled(this.inputEnabled && this.machine.canAcceptInput());
-      this.view.setUndoEnabled(this.inputEnabled && snapshot.canUndo);
     }
   }
 
@@ -79,16 +60,28 @@ export class BattlePresenter {
     this.sync(this.machine.snapshot());
   }
 
+  public restart(): void {
+    this.view.cancelFeedback();
+    const result = this.machine.restart();
+    this.view.hideResult();
+    this.sync(result.snapshot);
+  }
+
   public clear(): void {
     this.view.clear();
   }
 
-  private sync(snapshot: BattleViewSnapshot, failureReason?: string): void {
-    this.view.renderSandGrid(snapshot.grid);
+  private sync(
+    snapshot: BattleViewSnapshot,
+    failureReason?: string,
+    options: { readonly skipSandGrid?: boolean } = {},
+  ): void {
+    if (options.skipSandGrid !== true) {
+      this.view.renderSandGrid(snapshot.grid);
+    }
     this.view.renderConveyor(snapshot.conveyor, snapshot.buckets);
     this.view.renderBucketPool(snapshot.buckets);
     this.view.setInputEnabled(this.inputEnabled && this.machine.canAcceptInput());
-    this.view.setUndoEnabled(this.inputEnabled && snapshot.canUndo);
 
     if (snapshot.phase === BattlePhase.Won) {
       this.view.showWin();
@@ -129,27 +122,28 @@ function toPresentationEvents(result: BattleActionResult): readonly BattlePresen
     },
   ];
 
+  let presentationSlots = [...result.snapshot.conveyor.slots];
   for (const stageEvent of result.events) {
-    appendStagePresentationEvent(events, stageEvent);
+    appendStagePresentationEvent(events, stageEvent, result.snapshot, presentationSlots);
+    if (stageEvent.type === "bucketEnqueued") {
+      presentationSlots = [...stageEvent.conveyor.slots];
+    } else if (stageEvent.type === "mergeResolved") {
+      presentationSlots = [...stageEvent.result.state.slots];
+    } else if (stageEvent.type === "bucketCompleteResolved") {
+      presentationSlots = [...stageEvent.conveyor.slots];
+    }
   }
+  events.push({ type: "sandCanvasRedrawn", grid: result.snapshot.grid });
 
   return Object.freeze(events);
 }
 
-function toUndoPresentationEvents(result: BattleUndoResult): readonly BattlePresentationEvent[] {
-  if (!result.accepted) {
-    return Object.freeze([
-      {
-        type: "invalidClick",
-        message: formatFailureReason(result.rejectReason ?? "Input locked"),
-      },
-    ]);
-  }
-
-  return Object.freeze([{ type: "undoRestored" }]);
-}
-
-function appendStagePresentationEvent(events: BattlePresentationEvent[], stageEvent: BattleStageEvent): void {
+function appendStagePresentationEvent(
+  events: BattlePresentationEvent[],
+  stageEvent: BattleStageEvent,
+  snapshot: BattleViewSnapshot,
+  presentationSlots: readonly (string | null)[],
+): void {
   switch (stageEvent.type) {
     case "bucketEnqueued":
       events.push({
@@ -168,11 +162,57 @@ function appendStagePresentationEvent(events: BattlePresentationEvent[], stageEv
         });
       }
       return;
+    case "exposedSandResolved":
+      if (stageEvent.exposedSand.length > 0) {
+        events.push({
+          type: "exposedSandHighlighted",
+          cells: stageEvent.exposedSand,
+        });
+      }
+      return;
+    case "absorbResolved":
+      if (stageEvent.schedule.assignedCount > 0) {
+        events.push({
+          type: "sandAbsorbed",
+          allocations: stageEvent.schedule.allocations,
+          assignedCount: stageEvent.schedule.assignedCount,
+          absorptionEvents: stageEvent.schedule.allocations.map((allocation) => {
+            const bucket = snapshot.buckets.find((candidate) => candidate.instanceId === allocation.bucketInstanceId);
+            return Object.freeze({
+              revision: snapshot.actionIndex,
+              actionId: snapshot.actionIndex,
+              bucketInstanceId: allocation.bucketInstanceId,
+              slotIndex: presentationSlots.indexOf(allocation.bucketInstanceId),
+              colorId: allocation.colorId,
+              absorbedCells: allocation.sand,
+              amountBefore: allocation.bucketAmountBefore,
+              amountAfter: allocation.bucketAmountAfter,
+              capacity: bucket?.capacity ?? allocation.bucketAmountAfter + allocation.bucketRemainingCapacityAfter,
+            });
+          }),
+        });
+      }
+      return;
+    case "sandGravityResolved":
+      if (stageEvent.result.totalMoves > 0) {
+        events.push({
+          type: "sandGravitySettled",
+          revision: snapshot.actionIndex,
+          actionId: snapshot.actionIndex,
+          moves: stageEvent.result.moveTraces,
+          result: stageEvent.result,
+          grid: stageEvent.grid,
+          totalMoves: stageEvent.result.totalMoves,
+          settlementSteps: stageEvent.settlementSteps,
+        });
+      }
+      return;
     case "bucketCompleteResolved":
       if (stageEvent.completedBucketInstanceIds.length > 0) {
         events.push({
           type: "fullBucketLeft",
           bucketInstanceIds: stageEvent.completedBucketInstanceIds,
+          slotIndexes: stageEvent.completedBucketSlotIndexes,
         });
       }
       return;
@@ -191,12 +231,12 @@ function formatFailureReason(reason: string): string {
       return "Bucket unavailable";
     case "bucketNotSelectable":
       return "Bucket not selectable";
+    case "bucketNotColumnFront":
+      return "Bucket not column front";
     case "conveyorFull":
       return "Conveyor full";
     case "settlementError":
       return "Settlement error";
-    case "emptyHistory":
-      return "Nothing to undo";
     default:
       return reason;
   }
