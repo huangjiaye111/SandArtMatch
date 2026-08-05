@@ -18,7 +18,7 @@ import { BATTLE_PRESENTATION_CONFIG } from "./BattlePresentationConfig";
 const { ccclass, property } = _decorator;
 
 const TRAY_COLOR = new Color(244, 246, 242, 255);
-const EMPTY_CELL_RGB = Object.freeze({ r: 231, g: 235, b: 227, a: 255 });
+const EMPTY_CELL_RGB = Object.freeze({ r: 216, g: 226, b: 220, a: 255 });
 const EXPOSED_STROKE_COLOR = new Color(72, 167, 248, 230);
 const ABSORB_TRAIL_COLOR = new Color(255, 255, 255, 210);
 const FRAME_INNER_WIDTH = BATTLE_PRESENTATION_CONFIG.sandCanvasInnerWidth;
@@ -476,15 +476,18 @@ export class SandGridView extends Component {
     }
 
     graphics.clear();
-    graphics.strokeColor = EXPOSED_STROKE_COLOR;
     graphics.lineWidth = Math.max(2, model.cellSize * 0.12);
     for (const cell of cells) {
       const rect = findCanvasCell(model, cell);
       if (rect === null || rect.colorId === null) {
         continue;
       }
+      const palette = getSandCanvasPaletteEntry(rect.colorId);
+      graphics.fillColor = colorFromHex(palette.highlight, 74);
+      graphics.strokeColor = colorFromHex(palette.highlight, 236);
       const size = rect.size + Math.max(2, model.cellSize * 0.16);
       graphics.roundRect(rect.centerX - size / 2, rect.centerY - size / 2, size, size, Math.max(2, size * 0.18));
+      graphics.fill();
       graphics.stroke();
     }
     this.scheduleFeedbackClear(0.18);

@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, error, Graphics, Node, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
+import { _decorator, Color, Component, error, Graphics, Label, Node, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
 import { BattlePhase } from "../../domain/battle/BattleState";
 import {
   getBuiltInLevelConfigByCatalogLevelId,
@@ -36,6 +36,8 @@ type SandCanvasMotionTask = {
   readonly gravityEvent: GravityPresentationEvent | null;
   readonly finalGrid: BattleViewSnapshot["grid"] | null;
 };
+
+let battleTutorialShown = false;
 
 @ccclass("BattleRoot")
 export class BattleRoot extends Component implements BattleView {
@@ -79,6 +81,9 @@ export class BattleRoot extends Component implements BattleView {
   private currentCatalogLevelId: string | null = null;
   private victorySaved = false;
   private navigationStarted = false;
+  private runtimeDisposed = false;
+  private tutorialHint: Node | null = null;
+  private tutorialStage = 0;
 
   @property
   public debugBucketEntryFlowEnabled = false;
@@ -89,6 +94,7 @@ export class BattleRoot extends Component implements BattleView {
   public onLoad(): void {
     this.hideResult();
     this.applyRuntimeLayout();
+    this.ensureTutorialHint();
     const entry = this.resolveCatalogEntry();
     this.currentCatalogLevelId = entry.levelId;
     getRuntimeGameSession().currentLevelId = entry.levelId;
@@ -97,17 +103,15 @@ export class BattleRoot extends Component implements BattleView {
     this.bindChildActions();
     this.initialize(this.simulation.getSnapshot());
     this.setLevelText(this.levelText);
+    if (!battleTutorialShown) {
+      battleTutorialShown = true;
+      this.showTutorialHint("先选一个颜色桶，让它接住同色沙粒", 4.5);
+    }
   }
 
   protected onDestroy(): void {
     this.navigationStarted = true;
-    this.presentationToken += 1;
-    this.cancelAbsorptionFeedback();
-    this.simulation?.dispose();
-    this.bucketPoolView?.clearActions();
-    this.toolbarView?.clearActions();
-    this.simulation = null;
-    this.simulationFrameQueue.clear();
+    this.disposeBattleRuntime();
   }
 
   protected onDisable(): void { this.cancelFeedback(); }
@@ -148,6 +152,7 @@ export class BattleRoot extends Component implements BattleView {
     const hasSandCanvasMotion = hasAbsorption || hasGravity;
     this.playBucketFlights(events, bucketFlightStarts);
     this.enqueueAbsorptionEvents(events);
+    this.updateTutorialHint(events);
     let elapsedSeconds = 0;
     for (const step of createPresentationQueue(events)) {
       this.scheduleOnce(() => {
@@ -349,7 +354,7 @@ export class BattleRoot extends Component implements BattleView {
       this.setInputEnabled(false);
     } else if (frame.failed) {
       this.cancelFeedback();
-      this.showLose("Deadlock");
+      this.showLose("没有可吸收或可合并的操作");
       this.setInputEnabled(false);
     } else {
       this.hideResult();
@@ -386,6 +391,10 @@ export class BattleRoot extends Component implements BattleView {
   }
 
   private disposeBattleRuntime(): void {
+    if (this.runtimeDisposed) {
+      return;
+    }
+    this.runtimeDisposed = true;
     this.presentationToken += 1;
     this.cancelAbsorptionFeedback();
     this.cancelFeedback();
@@ -437,6 +446,81 @@ export class BattleRoot extends Component implements BattleView {
     sandArea?.getComponent(UITransform)?.setContentSize(660, 660);
     conveyorArea?.getComponent(UITransform)?.setContentSize(660, 118);
     bucketPoolArea?.getComponent(UITransform)?.setContentSize(700, 420);
+  }
+
+  private ensureTutorialHint(): void {
+    if (this.tutorialHint !== null && this.tutorialHint.isValid) {
+      return;
+    }
+    const hint = new Node("BattleTutorialHint");
+    hint.addComponent(UITransform).setContentSize(560, 64);
+    hint.addComponent(UIOpacity);
+    const background = new Node("Background");
+    background.addComponent(UITransform).setContentSize(560, 64);
+    background.addComponent(Graphics);
+    hint.addChild(background);
+    const labelNode = new Node("Label");
+    labelNode.addComponent(UITransform).setContentSize(520, 48);
+    const label = labelNode.addComponent(Label);
+    label.fontSize = 22;
+    label.lineHeight = 28;
+    label.color = new Color(38, 48, 45, 255);
+    label.enableOutline = true;
+    label.outlineColor = new Color(255, 255, 255, 220);
+    label.outlineWidth = 2;
+    hint.addChild(labelNode);
+    this.node.addChild(hint);
+    hint.setPosition(0, 80, 0);
+    hint.setSiblingIndex(80);
+    drawTutorialBackground(background.getComponent(Graphics));
+    this.tutorialHint = hint;
+  }
+
+  private showTutorialHint(message: string, durationSeconds: number): void {
+    this.ensureTutorialHint();
+    const hint = this.tutorialHint;
+    if (hint === null) {
+      return;
+    }
+    const label = hint.getChildByName("Label")?.getComponent(Label) ?? null;
+    const opacity = hint.getComponent(UIOpacity) ?? hint.addComponent(UIOpacity);
+    if (label !== null) {
+      label.string = message;
+    }
+    Tween.stopAllByTarget(opacity);
+    opacity.opacity = 255;
+    hint.active = true;
+    this.unschedule(this.hideTutorialHint);
+    this.scheduleOnce(this.hideTutorialHint, durationSeconds);
+  }
+
+  private hideTutorialHint = (): void => {
+    const hint = this.tutorialHint;
+    if (hint === null || !hint.isValid) {
+      return;
+    }
+    const opacity = hint.getComponent(UIOpacity) ?? hint.addComponent(UIOpacity);
+    Tween.stopAllByTarget(opacity);
+    tween(opacity)
+      .to(0.18, { opacity: 0 })
+      .call(() => {
+        if (hint.isValid) {
+          hint.active = false;
+        }
+      })
+      .start();
+  };
+
+  private updateTutorialHint(events: readonly BattlePresentationEvent[]): void {
+    if (this.tutorialStage < 2 && events.some((event) => event.type === "merge")) {
+      this.tutorialStage = 2;
+      this.showTutorialHint("三桶同色会合并，先留意传送带上的颜色", 2.4);
+      return;
+    }
+    if (this.tutorialStage < 1 && events.some((event) => event.type === "sandAbsorbed")) {
+      this.tutorialStage = 1;
+      this.showTutorialHint("同色沙粒会自动流入传送带上的桶", 1.8);
+    }
   }
 
   private captureBucketFlightStarts(
@@ -814,4 +898,17 @@ function colorFromHex(hex: string, alpha = 255): Color {
   const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
   const value = Number.parseInt(normalized, 16);
   return new Color((value >> 16) & 255, (value >> 8) & 255, value & 255, alpha);
+}
+
+function drawTutorialBackground(graphics: Graphics | null): void {
+  if (graphics === null) {
+    return;
+  }
+  graphics.clear();
+  graphics.fillColor = new Color(255, 248, 224, 238);
+  graphics.strokeColor = new Color(125, 93, 48, 180);
+  graphics.lineWidth = 3;
+  graphics.roundRect(-280, -32, 560, 64, 20);
+  graphics.fill();
+  graphics.stroke();
 }

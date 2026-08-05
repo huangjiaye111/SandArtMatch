@@ -65,7 +65,7 @@ export class ToolbarView extends Component {
   }
 
   public showLose(reason?: string): void {
-    this.setResult(reason === undefined || reason.length === 0 ? "Deadlock" : "Deadlock", "deadlock");
+    this.setResult(reason === undefined || reason.length === 0 ? "没有可吸收或可合并的操作" : reason, "deadlock");
     this.setNextVisible(false);
   }
 
@@ -159,31 +159,23 @@ export class ToolbarView extends Component {
   }
 
   private clearButtonHandlers(): void {
-    const settingsButton = this.getSettingsButton();
-    if (settingsButton !== null && settingsButton.node.isValid && this.settingsHandler !== null) {
-      settingsButton.node.off(Button.EventType.CLICK, this.settingsHandler, this);
-    }
-    const toolbarHomeButton = this.getToolbarHomeButton();
-    if (toolbarHomeButton !== null && toolbarHomeButton.node.isValid && this.toolbarHomeHandler !== null) {
-      toolbarHomeButton.node.off(Button.EventType.CLICK, this.toolbarHomeHandler, this);
-    }
-    const restartButton = this.getRestartButton();
-    if (restartButton !== null && restartButton.node.isValid && this.restartHandler !== null) {
-      restartButton.node.off(Button.EventType.CLICK, this.restartHandler, this);
-    }
-    const nextButton = this.getNextButton();
-    if (nextButton !== null && nextButton.node.isValid && this.nextHandler !== null) {
-      nextButton.node.off(Button.EventType.CLICK, this.nextHandler, this);
-    }
-    const homeButton = this.getHomeButton();
-    if (homeButton !== null && homeButton.node.isValid && this.homeHandler !== null) {
-      homeButton.node.off(Button.EventType.CLICK, this.homeHandler, this);
-    }
+    this.removeButtonHandler(this.getSettingsButton(), this.settingsHandler);
+    this.removeButtonHandler(this.getToolbarHomeButton(), this.toolbarHomeHandler);
+    this.removeButtonHandler(this.getRestartButton(), this.restartHandler);
+    this.removeButtonHandler(this.getNextButton(), this.nextHandler);
+    this.removeButtonHandler(this.getHomeButton(), this.homeHandler);
     this.settingsHandler = null;
     this.toolbarHomeHandler = null;
     this.restartHandler = null;
     this.nextHandler = null;
     this.homeHandler = null;
+  }
+
+  private removeButtonHandler(button: Button | null, handler: (() => void) | null): void {
+    const node = button?.node ?? null;
+    if (button?.isValid === true && node?.isValid === true && handler !== null) {
+      node.off(Button.EventType.CLICK, handler, this);
+    }
   }
 
   private setResult(text: string, icon: "win" | "deadlock"): void {
@@ -257,21 +249,21 @@ export class ToolbarView extends Component {
   }
 
   private getRestartButton(): Button | null {
-    if (this.resultRoot === null) {
+    if (this.resultRoot === null || !this.resultRoot.isValid) {
       return null;
     }
     return this.resultRoot.getChildByName("RestartButton")?.getComponent(Button) ?? null;
   }
 
   private getNextButton(): Button | null {
-    if (this.resultRoot === null) {
+    if (this.resultRoot === null || !this.resultRoot.isValid) {
       return null;
     }
     return this.resultRoot.getChildByName("NextButton")?.getComponent(Button) ?? null;
   }
 
   private getHomeButton(): Button | null {
-    if (this.resultRoot === null) {
+    if (this.resultRoot === null || !this.resultRoot.isValid) {
       return null;
     }
     return this.resultRoot.getChildByName("HomeButton")?.getComponent(Button) ?? null;

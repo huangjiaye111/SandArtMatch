@@ -268,16 +268,50 @@ function drawStateMark(node: Node, full: boolean, options: BucketVisualRenderOpt
   if (!full && !options.selected && !options.mergeReady && !options.error && !options.disabled) {
     return;
   }
-  const fill = full
-    ? new Color(255, 247, 222, 230)
-    : options.error
-      ? new Color(255, 111, 97, 220)
-      : options.disabled
-        ? new Color(120, 120, 120, 150)
-        : new Color(255, 247, 222, 180);
+  if (full) {
+    graphics.fillColor = new Color(255, 247, 222, 240);
+    graphics.strokeColor = new Color(109, 82, 42, 220);
+    graphics.lineWidth = 2;
+    graphics.circle(0, 0, 11);
+    graphics.fill();
+    graphics.stroke();
+    graphics.strokeColor = new Color(74, 142, 92, 255);
+    graphics.lineWidth = 3;
+    graphics.moveTo(-5, 0);
+    graphics.lineTo(-1, 4);
+    graphics.lineTo(6, -5);
+    graphics.stroke();
+    return;
+  }
+  if (options.mergeReady) {
+    graphics.fillColor = new Color(255, 197, 72, 238);
+    graphics.strokeColor = new Color(139, 86, 24, 230);
+    graphics.lineWidth = 2;
+    graphics.circle(0, 0, 10);
+    graphics.fill();
+    graphics.stroke();
+    graphics.fillColor = new Color(255, 250, 218, 255);
+    graphics.circle(-4, 0, 2.2);
+    graphics.circle(0, 0, 2.2);
+    graphics.circle(4, 0, 2.2);
+    graphics.fill();
+    return;
+  }
+  const fill = options.error
+    ? new Color(255, 111, 97, 220)
+    : options.disabled
+      ? new Color(120, 120, 120, 150)
+      : new Color(255, 247, 222, 180);
   graphics.fillColor = fill;
   graphics.roundRect(-27, -8, 54, 16, 8);
   graphics.fill();
+  if (options.disabled) {
+    graphics.strokeColor = new Color(74, 78, 78, 180);
+    graphics.lineWidth = 2;
+    graphics.moveTo(-16, -5);
+    graphics.lineTo(16, 5);
+    graphics.stroke();
+  }
 }
 
 function colorFromHex(hex: string, alpha = 255): Color {

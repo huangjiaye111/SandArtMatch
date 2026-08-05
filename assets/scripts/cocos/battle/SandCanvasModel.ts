@@ -93,7 +93,7 @@ export function createSandCanvasRenderModel(
   const innerHeight = size.innerHeight ?? Math.min(size.maxHeight, DEFAULT_INNER_HEIGHT);
   const rawCellSize = Math.min(innerWidth / grid.width, innerHeight / grid.height);
   const cellSize = Math.max(minCellSize, Math.floor(rawCellSize));
-  const gap = cellSize <= 7 ? 0 : Math.max(1, Math.floor(cellSize * GAP_RATIO));
+  const gap = cellSize <= 3 ? 0 : Math.max(1, Math.floor(cellSize * GAP_RATIO));
   const drawSize = Math.max(1, cellSize - gap);
   const totalWidth = grid.width * cellSize;
   const totalHeight = grid.height * cellSize;
