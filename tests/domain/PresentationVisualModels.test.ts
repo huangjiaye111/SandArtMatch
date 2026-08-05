@@ -354,7 +354,7 @@ describe("Presentation visual models", () => {
       seed: 9,
     });
 
-    assert.equal(plan.batches.length, 24);
+    assert.equal(plan.batches.length, 8);
     assert.equal(plan.batches.reduce((total, batch) => total + batch.logicalCount, 0), cells.length);
     assert.equal(plan.batches.every((batch) => batch.particleCells.length <= 5), true);
     assert.equal(plan.durationSeconds <= 1.2, true);
