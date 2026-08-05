@@ -1,6 +1,12 @@
-import { _decorator, Color, Component, Graphics, Node, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
+import { _decorator, Color, Component, error, Graphics, Node, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
 import { BattlePhase } from "../../domain/battle/BattleState";
-import { createBattleSimulationForBuiltInTestLevel } from "../../domain/config/TestLevels";
+import {
+  getBuiltInLevelConfigByCatalogLevelId,
+  getDisplayLevelText,
+  getLevelCatalogEntry,
+  getLevelCatalogEntryByConfigLevelId,
+} from "../../domain/config/LevelCatalog";
+import { createBattleSimulationFromLevel } from "../../domain/config/LevelLoader";
 import { DEFAULT_BATTLE_SIMULATION_CONFIG } from "../../domain/battle/BattleSimulationConfig";
 import type { BattleSimulation, BattleSimulationFrame } from "../../domain/battle/BattleSimulation";
 import type { BattleViewSnapshot } from "../../domain/battle/BattleState";
@@ -19,6 +25,7 @@ import { createBucketExitPresentationTasks, createBucketMergePresentationTasks }
 import { createGravityTimelinePlan, groupGravityMovesByIteration, type GravityIterationStep } from "./GravityMotionModel";
 import { getSandCanvasPaletteEntry } from "./SandCanvasModel";
 import { BATTLE_PRESENTATION_CONFIG } from "./BattlePresentationConfig";
+import { getRuntimeGameNavigator, getRuntimeGameSession } from "../navigation/RuntimeGameServices";
 
 const { ccclass, property } = _decorator;
 
@@ -69,6 +76,9 @@ export class BattleRoot extends Component implements BattleView {
   private debugStatsTicks = 0;
   private debugStatsVisibleFrames = 0;
   private debugStatsMergedTicks = 0;
+  private currentCatalogLevelId: string | null = null;
+  private victorySaved = false;
+  private navigationStarted = false;
 
   @property
   public debugBucketEntryFlowEnabled = false;
@@ -79,12 +89,18 @@ export class BattleRoot extends Component implements BattleView {
   public onLoad(): void {
     this.hideResult();
     this.applyRuntimeLayout();
-    this.simulation = createBattleSimulationForBuiltInTestLevel(this.levelId);
+    const entry = this.resolveCatalogEntry();
+    this.currentCatalogLevelId = entry.levelId;
+    getRuntimeGameSession().currentLevelId = entry.levelId;
+    this.levelText = getDisplayLevelText(entry);
+    this.simulation = createBattleSimulationFromLevel(getBuiltInLevelConfigByCatalogLevelId(entry.levelId));
     this.bindChildActions();
     this.initialize(this.simulation.getSnapshot());
+    this.setLevelText(this.levelText);
   }
 
   protected onDestroy(): void {
+    this.navigationStarted = true;
     this.presentationToken += 1;
     this.cancelAbsorptionFeedback();
     this.simulation?.dispose();
@@ -168,8 +184,8 @@ export class BattleRoot extends Component implements BattleView {
     this.toolbarView?.showFeedback(message);
   }
 
-  public showWin(): void {
-    this.toolbarView?.showWin();
+  public showWin(canStartNext = false): void {
+    this.toolbarView?.showWin(canStartNext);
   }
 
   public showLose(reason?: string): void {
@@ -209,6 +225,9 @@ export class BattleRoot extends Component implements BattleView {
   }
 
   public onRestartTapped(): void {
+    if (this.navigationStarted) {
+      return;
+    }
     const simulation = this.simulation;
     if (simulation === null) {
       return;
@@ -217,6 +236,35 @@ export class BattleRoot extends Component implements BattleView {
     simulation.reset();
     this.hideResult();
     this.initialize(simulation.getSnapshot());
+  }
+
+  public onNextTapped(): void {
+    if (this.navigationStarted) {
+      return;
+    }
+    this.navigationStarted = true;
+    this.disposeBattleRuntime();
+    void this.navigateFromBattle("Next", () => getRuntimeGameNavigator().startNextLevel());
+  }
+
+  public onHomeTapped(): void {
+    if (this.navigationStarted) {
+      return;
+    }
+    this.navigationStarted = true;
+    this.disposeBattleRuntime();
+    void this.navigateFromBattle("Home", () => getRuntimeGameNavigator().goHome());
+  }
+
+  private async navigateFromBattle(action: string, navigate: () => Promise<unknown>): Promise<void> {
+    try {
+      const result = await navigate();
+      if (typeof result === "object" && result !== null && "accepted" in result && result.accepted !== true) {
+        error(`[BattleRoot] ${action} navigation rejected`, result);
+      }
+    } catch (reason: unknown) {
+      error(`[BattleRoot] ${action} navigation failed`, reason);
+    }
   }
 
   protected update(deltaTime: number): void {
@@ -263,6 +311,8 @@ export class BattleRoot extends Component implements BattleView {
     const actions = {
       selectBucket: (bucketInstanceId: string) => this.onBucketTapped(bucketInstanceId),
       restart: () => this.onRestartTapped(),
+      next: () => this.onNextTapped(),
+      home: () => this.onHomeTapped(),
     };
     this.bucketPoolView?.setActions(actions);
     this.toolbarView?.setActions(actions);
@@ -294,7 +344,8 @@ export class BattleRoot extends Component implements BattleView {
 
     if (frame.won) {
       this.cancelFeedback();
-      this.showWin();
+      const victory = this.saveVictoryOnce();
+      this.showWin(victory.canStartNext);
       this.setInputEnabled(false);
     } else if (frame.failed) {
       this.cancelFeedback();
@@ -315,6 +366,34 @@ export class BattleRoot extends Component implements BattleView {
       }
     }
     return positions;
+  }
+
+  private resolveCatalogEntry() {
+    const sessionLevelId = getRuntimeGameSession().currentLevelId;
+    if (sessionLevelId !== null) {
+      return getLevelCatalogEntry(sessionLevelId);
+    }
+    return getLevelCatalogEntryByConfigLevelId(this.levelId);
+  }
+
+  private saveVictoryOnce(): { readonly canStartNext: boolean } {
+    if (this.victorySaved) {
+      const entry = this.currentCatalogLevelId === null ? null : getLevelCatalogEntry(this.currentCatalogLevelId);
+      return { canStartNext: entry?.nextLevelId !== null && entry?.nextLevelId !== undefined };
+    }
+    this.victorySaved = true;
+    return getRuntimeGameNavigator().completeCurrentLevelVictory();
+  }
+
+  private disposeBattleRuntime(): void {
+    this.presentationToken += 1;
+    this.cancelAbsorptionFeedback();
+    this.cancelFeedback();
+    this.simulation?.dispose();
+    this.simulation = null;
+    this.bucketPoolView?.clearActions();
+    this.toolbarView?.clearActions();
+    this.simulationFrameQueue.clear();
   }
 
   private playSimulationBucketFeedback(frame: Pick<BattleSimulationFrame, "bucketAmountDeltas">): void {

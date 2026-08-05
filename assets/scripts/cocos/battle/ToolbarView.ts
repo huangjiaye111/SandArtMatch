@@ -20,6 +20,9 @@ export class ToolbarView extends Component {
   @property(Button)
   public settingsButton: Button | null = null;
 
+  @property(Button)
+  public homeButton: Button | null = null;
+
   @property(Node)
   public resultRoot: Node | null = null;
 
@@ -28,17 +31,24 @@ export class ToolbarView extends Component {
 
   private actions: BattleUiActions | null = null;
   private settingsHandler: (() => void) | null = null;
+  private toolbarHomeHandler: (() => void) | null = null;
   private restartHandler: (() => void) | null = null;
+  private nextHandler: (() => void) | null = null;
+  private homeHandler: (() => void) | null = null;
 
   public setActions(actions: BattleUiActions): void {
     this.actions = actions;
     this.applyToolbarLayout();
+    this.ensureToolbarHomeButton();
     this.ensureResultRestartButton();
+    this.ensureResultNextButton();
+    this.ensureResultHomeButton();
     this.rebindButtons();
   }
 
   public clearActions(): void {
     this.actions = null;
+    this.unscheduleAllCallbacks();
     this.clearButtonHandlers();
   }
 
@@ -49,12 +59,14 @@ export class ToolbarView extends Component {
     }
   }
 
-  public showWin(): void {
+  public showWin(canStartNext = false): void {
     this.setResult("Victory!", "win");
+    this.setNextVisible(canStartNext);
   }
 
   public showLose(reason?: string): void {
     this.setResult(reason === undefined || reason.length === 0 ? "Deadlock" : "Deadlock", "deadlock");
+    this.setNextVisible(false);
   }
 
   public showFeedback(message: string): void {
@@ -79,6 +91,7 @@ export class ToolbarView extends Component {
     if (this.resultRoot !== null) {
       this.resultRoot.active = false;
     }
+    this.setNextVisible(false);
     this.setResultIcon("win");
     if (this.resultLabel !== null) {
       this.resultLabel.string = "";
@@ -98,7 +111,10 @@ export class ToolbarView extends Component {
 
   private rebindButtons(): void {
     this.applyToolbarLayout();
+    this.ensureToolbarHomeButton();
     this.ensureResultRestartButton();
+    this.ensureResultNextButton();
+    this.ensureResultHomeButton();
     this.clearButtonHandlers();
     const settingsButton = this.getSettingsButton();
     if (settingsButton !== null) {
@@ -108,34 +124,77 @@ export class ToolbarView extends Component {
       };
       settingsButton.node.on(Button.EventType.CLICK, this.settingsHandler, this);
     }
+    const toolbarHomeButton = this.getToolbarHomeButton();
+    if (toolbarHomeButton !== null) {
+      this.toolbarHomeHandler = () => {
+        this.flashButton(toolbarHomeButton, "pressed", "Home");
+        this.actions?.home();
+      };
+      toolbarHomeButton.node.on(Button.EventType.CLICK, this.toolbarHomeHandler, this);
+    }
     const restartButton = this.getRestartButton();
     if (restartButton !== null) {
       this.restartHandler = () => {
-        this.flashButton(restartButton, "pressed", "Restart");
+        this.flashButton(restartButton, "pressed", "Replay");
         this.actions?.restart();
       };
       restartButton.node.on(Button.EventType.CLICK, this.restartHandler, this);
+    }
+    const nextButton = this.getNextButton();
+    if (nextButton !== null) {
+      this.nextHandler = () => {
+        this.flashButton(nextButton, "pressed", "Next");
+        this.actions?.next();
+      };
+      nextButton.node.on(Button.EventType.CLICK, this.nextHandler, this);
+    }
+    const homeButton = this.getHomeButton();
+    if (homeButton !== null) {
+      this.homeHandler = () => {
+        this.flashButton(homeButton, "pressed", "Home");
+        this.actions?.home();
+      };
+      homeButton.node.on(Button.EventType.CLICK, this.homeHandler, this);
     }
   }
 
   private clearButtonHandlers(): void {
     const settingsButton = this.getSettingsButton();
-    if (settingsButton !== null && this.settingsHandler !== null) {
+    if (settingsButton !== null && settingsButton.node.isValid && this.settingsHandler !== null) {
       settingsButton.node.off(Button.EventType.CLICK, this.settingsHandler, this);
     }
+    const toolbarHomeButton = this.getToolbarHomeButton();
+    if (toolbarHomeButton !== null && toolbarHomeButton.node.isValid && this.toolbarHomeHandler !== null) {
+      toolbarHomeButton.node.off(Button.EventType.CLICK, this.toolbarHomeHandler, this);
+    }
     const restartButton = this.getRestartButton();
-    if (restartButton !== null && this.restartHandler !== null) {
+    if (restartButton !== null && restartButton.node.isValid && this.restartHandler !== null) {
       restartButton.node.off(Button.EventType.CLICK, this.restartHandler, this);
     }
+    const nextButton = this.getNextButton();
+    if (nextButton !== null && nextButton.node.isValid && this.nextHandler !== null) {
+      nextButton.node.off(Button.EventType.CLICK, this.nextHandler, this);
+    }
+    const homeButton = this.getHomeButton();
+    if (homeButton !== null && homeButton.node.isValid && this.homeHandler !== null) {
+      homeButton.node.off(Button.EventType.CLICK, this.homeHandler, this);
+    }
     this.settingsHandler = null;
+    this.toolbarHomeHandler = null;
     this.restartHandler = null;
+    this.nextHandler = null;
+    this.homeHandler = null;
   }
 
   private setResult(text: string, icon: "win" | "deadlock"): void {
     if (this.resultRoot !== null) {
       this.resultRoot.active = true;
       this.resultRoot.setScale(0.96, 0.96, 1);
-      this.scheduleOnce(() => this.resultRoot?.setScale(1, 1, 1), 0.08);
+      this.scheduleOnce(() => {
+        if (this.isValid && this.resultRoot !== null && this.resultRoot.isValid) {
+          this.resultRoot.setScale(1, 1, 1);
+        }
+      }, 0.08);
     }
     this.setResultIcon(icon);
     if (this.resultLabel !== null) {
@@ -149,10 +208,23 @@ export class ToolbarView extends Component {
     this.levelLabel?.node.setPosition(-245, 0, 0);
     settingsButton?.node.setPosition(234, 0, 0);
     styleUtilityButton(settingsButton, "Settings");
+    const toolbarHomeButton = this.getToolbarHomeButton();
+    toolbarHomeButton?.node.setPosition(112, 0, 0);
+    styleUtilityButton(toolbarHomeButton, "Home");
     const restartButton = this.getRestartButton();
     if (restartButton !== null) {
       restartButton.node.setPosition(0, -120, 0);
-      styleUtilityButton(restartButton, "Restart");
+      styleUtilityButton(restartButton, "Replay");
+    }
+    const nextButton = this.getNextButton();
+    if (nextButton !== null) {
+      nextButton.node.setPosition(-100, -120, 0);
+      styleUtilityButton(nextButton, "Next");
+    }
+    const homeButton = this.getHomeButton();
+    if (homeButton !== null) {
+      homeButton.node.setPosition(100, -120, 0);
+      styleUtilityButton(homeButton, "Home");
     }
     if (this.levelLabel !== null) {
       setContentSize(this.levelLabel.node, 160, 46);
@@ -167,11 +239,42 @@ export class ToolbarView extends Component {
     return this.node.getChildByName("SettingsButton")?.getComponent(Button) ?? null;
   }
 
+  private getToolbarHomeButton(): Button | null {
+    if (this.homeButton !== null) {
+      return this.homeButton;
+    }
+    return this.node.getChildByName("HomeButton")?.getComponent(Button) ?? null;
+  }
+
+  private ensureToolbarHomeButton(): Button | null {
+    const existing = this.getToolbarHomeButton();
+    if (existing !== null) {
+      return existing;
+    }
+    const buttonNode = createResultButtonNode("HomeButton");
+    this.node.addChild(buttonNode);
+    return buttonNode.getComponent(Button);
+  }
+
   private getRestartButton(): Button | null {
     if (this.resultRoot === null) {
       return null;
     }
     return this.resultRoot.getChildByName("RestartButton")?.getComponent(Button) ?? null;
+  }
+
+  private getNextButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    return this.resultRoot.getChildByName("NextButton")?.getComponent(Button) ?? null;
+  }
+
+  private getHomeButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    return this.resultRoot.getChildByName("HomeButton")?.getComponent(Button) ?? null;
   }
 
   private ensureResultRestartButton(): Button | null {
@@ -183,27 +286,47 @@ export class ToolbarView extends Component {
       this.ensureRestartButtonLayout(existing);
       return existing;
     }
-    const buttonNode = new Node("RestartButton");
-    buttonNode.addComponent(UITransform);
-    buttonNode.addComponent(Sprite);
-    buttonNode.addComponent(Button);
+    const buttonNode = createResultButtonNode("RestartButton");
     this.resultRoot.addChild(buttonNode);
-
-    const background = new Node("Background");
-    background.addComponent(UITransform);
-    background.addComponent(Sprite);
-    buttonNode.addChild(background);
-
-    const labelNode = new Node("Label");
-    labelNode.addComponent(UITransform);
-    labelNode.addComponent(Label);
-    buttonNode.addChild(labelNode);
-
     this.ensureRestartButtonLayout(buttonNode.getComponent(Button));
     return buttonNode.getComponent(Button);
   }
 
+  private ensureResultNextButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    const existing = this.getNextButton();
+    if (existing !== null) {
+      this.ensureResultButtonLayout(existing, "Next");
+      return existing;
+    }
+    const buttonNode = createResultButtonNode("NextButton");
+    this.resultRoot.addChild(buttonNode);
+    this.ensureResultButtonLayout(buttonNode.getComponent(Button), "Next");
+    return buttonNode.getComponent(Button);
+  }
+
+  private ensureResultHomeButton(): Button | null {
+    if (this.resultRoot === null) {
+      return null;
+    }
+    const existing = this.getHomeButton();
+    if (existing !== null) {
+      this.ensureResultButtonLayout(existing, "Home");
+      return existing;
+    }
+    const buttonNode = createResultButtonNode("HomeButton");
+    this.resultRoot.addChild(buttonNode);
+    this.ensureResultButtonLayout(buttonNode.getComponent(Button), "Home");
+    return buttonNode.getComponent(Button);
+  }
+
   private ensureRestartButtonLayout(button: Button | null): void {
+    this.ensureResultButtonLayout(button, "Replay");
+  }
+
+  private ensureResultButtonLayout(button: Button | null, labelText: string): void {
     if (button === null) {
       return;
     }
@@ -217,15 +340,31 @@ export class ToolbarView extends Component {
     }
     const label = node.getChildByName("Label")?.getComponent(Label) ?? null;
     if (label !== null) {
-      label.string = label.string.length === 0 ? "Restart" : label.string;
+      label.string = labelText;
       label.node.setPosition(0, 0, 0);
       setContentSize(label.node, 120, 32);
       styleLabel(label, 24, 30, BUTTON_TEXT_COLOR, BUTTON_OUTLINE_COLOR);
     }
   }
 
+  private setNextVisible(visible: boolean): void {
+    const nextButton = this.getNextButton();
+    if (nextButton !== null) {
+      nextButton.node.active = visible;
+      nextButton.interactable = visible;
+    }
+    const restartButton = this.getRestartButton();
+    if (restartButton !== null) {
+      restartButton.node.setPosition(visible ? 0 : -86, -120, 0);
+    }
+    const homeButton = this.getHomeButton();
+    if (homeButton !== null) {
+      homeButton.node.setPosition(visible ? 100 : 86, -120, 0);
+    }
+  }
+
   private flashButton(button: Button | null, kind: "pressed" | "error", fallbackText = "Settings"): void {
-    if (button === null) {
+    if (button === null || !button.node.isValid) {
       return;
     }
     const background = button.node.getChildByName("Background");
@@ -235,6 +374,9 @@ export class ToolbarView extends Component {
     }
     button.node.setScale(0.95, 0.95, 1);
     this.scheduleOnce(() => {
+      if (!this.isValid || !button.node.isValid) {
+        return;
+      }
       button.node.setScale(1, 1, 1);
       styleUtilityButton(button, fallbackText);
     }, kind === "error" ? 0.16 : 0.12);
@@ -245,7 +387,11 @@ export class ToolbarView extends Component {
       return;
     }
     this.resultRoot.setScale(0.96, 0.96, 1);
-    this.scheduleOnce(() => this.resultRoot?.setScale(1, 1, 1), 0.1);
+    this.scheduleOnce(() => {
+      if (this.isValid && this.resultRoot !== null && this.resultRoot.isValid) {
+        this.resultRoot.setScale(1, 1, 1);
+      }
+    }, 0.1);
   }
 
   private setResultIcon(state: "win" | "deadlock"): void {
@@ -297,6 +443,24 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
 
 function setContentSize(node: Node | null, width: number, height: number): void {
   node?.getComponent(UITransform)?.setContentSize(width, height);
+}
+
+function createResultButtonNode(name: string): Node {
+  const buttonNode = new Node(name);
+  buttonNode.addComponent(UITransform);
+  buttonNode.addComponent(Sprite);
+  buttonNode.addComponent(Button);
+
+  const background = new Node("Background");
+  background.addComponent(UITransform);
+  background.addComponent(Sprite);
+  buttonNode.addChild(background);
+
+  const labelNode = new Node("Label");
+  labelNode.addComponent(UITransform);
+  labelNode.addComponent(Label);
+  buttonNode.addChild(labelNode);
+  return buttonNode;
 }
 
 function styleLabel(label: Label, fontSize: number, lineHeight: number, color: Color, outlineColor: Color): void {

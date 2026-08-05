@@ -84,7 +84,7 @@ export interface BattleView {
   playFeedback(events: readonly BattlePresentationEvent[]): Promise<void>;
   cancelFeedback(): void;
   showFeedback(message: string): void;
-  showWin(): void;
+  showWin(canStartNext?: boolean): void;
   showLose(reason?: string): void;
   hideResult(): void;
   clear(): void;
@@ -93,4 +93,6 @@ export interface BattleView {
 export interface BattleUiActions {
   selectBucket(bucketInstanceId: string): void;
   restart(): void;
+  next(): void;
+  home(): void;
 }

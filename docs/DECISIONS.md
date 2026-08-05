@@ -62,3 +62,10 @@
 - 每日挑战；
 - 正式广告SDK；
 - 社交系统。
+
+## TASK021 正式关卡与首页选关
+
+- 当前正式 Catalog 只包含 `level-001`，其 `nextLevelId` 为 `null`。
+- Home 内嵌动态关卡选择，不使用独立 `LevelSelect` 场景。
+- 正式流程为 `Boot -> Home -> Battle`；Victory 和 Deadlock 只提供 Replay 与 Home。
+- 保留 `LevelCatalog`、`ProgressStore`、`GameSession` 和统一 `GameNavigator` 作为后续扩展架构。

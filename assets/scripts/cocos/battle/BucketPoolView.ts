@@ -58,7 +58,6 @@ export class BucketPoolView extends Component {
     this.actions = null;
     this.inputEnabled = false;
     this.clearButtonHandlers();
-    this.refreshButtonStates();
   }
 
   public setInputEnabled(enabled: boolean): void {
@@ -193,8 +192,9 @@ export class BucketPoolView extends Component {
   private clearButtonHandlers(): void {
     for (let index = 0; index < this.buttonHandlers.length; index += 1) {
       const button = this.bucketButtons[index];
-      if (button !== undefined) {
-        button.node.off(Button.EventType.CLICK, this.buttonHandlers[index], this);
+      const buttonNode = button?.node ?? null;
+      if (buttonNode !== null && buttonNode.isValid) {
+        buttonNode.off(Button.EventType.CLICK, this.buttonHandlers[index], this);
       }
     }
     this.buttonHandlers.length = 0;
@@ -214,7 +214,12 @@ export class BucketPoolView extends Component {
   }
 
   private getBucketVisualRoot(index: number) {
-    return this.bucketButtons[index]?.node.getChildByName("BucketVisualRoot") ?? null;
+    const button = this.bucketButtons[index] ?? null;
+    const buttonNode = button?.node ?? null;
+    if (buttonNode === null || !buttonNode.isValid) {
+      return null;
+    }
+    return buttonNode.getChildByName("BucketVisualRoot") ?? null;
   }
 
   private ensureBucketViews(count: number): void {

@@ -2516,6 +2516,7 @@
       "__id__": 61
     },
     "debugLabelsEnabled": false,
+    "presentationDebugLogging": false,
     "_id": "76knY7bDBP7qEGuJes9dLb"
   },
   {
@@ -16383,6 +16384,7 @@
     "levelId": 1,
     "levelText": "Level 1",
     "debugBucketEntryFlowEnabled": false,
+    "presentationDebugLogging": false,
     "_id": "aeWHVXXwtIv7GGvncgL7HY"
   },
   {

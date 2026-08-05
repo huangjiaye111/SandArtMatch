@@ -40,7 +40,19 @@ export const TEST_LEVEL_001: LevelConfig = Object.freeze({
   rules: DEFAULT_RULES,
 });
 
-export const TEST_LEVELS: readonly LevelConfig[] = Object.freeze([TEST_LEVEL_001]);
+export const TEST_LEVEL_002: LevelConfig = Object.freeze({
+  ...TEST_LEVEL_001,
+  levelId: 2,
+  seed: "sand-workshop-island-sunset-020",
+});
+
+export const TEST_LEVEL_003: LevelConfig = Object.freeze({
+  ...TEST_LEVEL_001,
+  levelId: 3,
+  seed: "sand-workshop-island-sunset-021",
+});
+
+export const TEST_LEVELS: readonly LevelConfig[] = Object.freeze([TEST_LEVEL_001, TEST_LEVEL_002, TEST_LEVEL_003]);
 
 export function getBuiltInTestLevel(levelId: number = TEST_LEVEL_001.levelId): LevelConfig {
   const level = TEST_LEVELS.find((candidate) => candidate.levelId === levelId);

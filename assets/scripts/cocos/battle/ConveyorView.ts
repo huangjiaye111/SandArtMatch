@@ -805,13 +805,22 @@ export class ConveyorView extends Component {
   private cancelBucketPresentationTasks(): void {
     for (const task of this.activeBucketTasks.values()) {
       Tween.stopAllByTarget(task.progress);
-      Tween.stopAllByTarget(task.node);
+      if (task.node.isValid) {
+        Tween.stopAllByTarget(task.node);
+      }
       resetTransitionNode(task.node);
     }
     this.activeBucketTasks.clear();
     for (const node of this.transitionNodePool) {
-      Tween.stopAllByTarget(node);
+      if (node.isValid) {
+        Tween.stopAllByTarget(node);
+      }
       resetTransitionNode(node);
+    }
+    for (let index = this.transitionNodePool.length - 1; index >= 0; index -= 1) {
+      if (!this.transitionNodePool[index].isValid) {
+        this.transitionNodePool.splice(index, 1);
+      }
     }
   }
 
@@ -898,6 +907,9 @@ function lerp(start: number, end: number, progress: number): number {
 }
 
 function resetTransitionNode(node: Node): void {
+  if (!node.isValid) {
+    return;
+  }
   node.active = false;
   node.setPosition(0, 0, 0);
   node.setScale(1, 1, 1);
