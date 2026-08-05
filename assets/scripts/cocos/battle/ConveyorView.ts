@@ -437,8 +437,20 @@ export class ConveyorView extends Component {
     if (slotArtLayer !== null) slotArtLayer.active = false;
     if (visualLayer !== null) visualLayer.active = false;
     if (slots !== null) slots.active = false;
+    this.hideLegacyLabels(this.node);
     this.ensureCarrierHierarchy();
     this.ensureCarrierTransferRoot();
+  }
+
+  private hideLegacyLabels(root: Node): void {
+    const label = root.getComponent(Label);
+    if (label !== null) {
+      label.string = "";
+      label.node.active = false;
+    }
+    for (const child of root.children) {
+      this.hideLegacyLabels(child);
+    }
   }
 
   private ensureCarrierHierarchy(): Node {

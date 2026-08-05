@@ -573,6 +573,12 @@ function colorFromHexToBytes(hex: string, x: number, y: number): Readonly<{ r: n
   });
 }
 
+function colorFromHex(hex: string, alpha = 255): Color {
+  const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
+  const value = Number.parseInt(normalized, 16);
+  return new Color((value >> 16) & 255, (value >> 8) & 255, value & 255, alpha);
+}
+
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, value));
 }

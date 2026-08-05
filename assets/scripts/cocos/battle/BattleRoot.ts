@@ -39,6 +39,8 @@ type SandCanvasMotionTask = {
 
 let battleTutorialShown = false;
 
+const WORKSHOP_BG_SIZE = Object.freeze({ width: 750, height: 1334 });
+
 @ccclass("BattleRoot")
 export class BattleRoot extends Component implements BattleView {
   @property(SandGridView)
@@ -93,6 +95,7 @@ export class BattleRoot extends Component implements BattleView {
 
   public onLoad(): void {
     this.hideResult();
+    this.ensureBattleWorkshopBackdrop();
     this.applyRuntimeLayout();
     this.ensureTutorialHint();
     const entry = this.resolveCatalogEntry();
@@ -439,13 +442,29 @@ export class BattleRoot extends Component implements BattleView {
     const conveyorArea = designContent?.getChildByName("ConveyorArea") ?? null;
     const bucketPoolArea = designContent?.getChildByName("BucketPoolArea") ?? null;
 
-    sandArea?.setPosition(0, 228, 0);
-    conveyorArea?.setPosition(0, -126, 0);
-    bucketPoolArea?.setPosition(0, -388, 0);
+    designContent?.setSiblingIndex(5);
+    sandArea?.setPosition(0, 236, 0);
+    conveyorArea?.setPosition(0, -118, 0);
+    bucketPoolArea?.setPosition(0, -410, 0);
 
-    sandArea?.getComponent(UITransform)?.setContentSize(660, 660);
-    conveyorArea?.getComponent(UITransform)?.setContentSize(660, 118);
-    bucketPoolArea?.getComponent(UITransform)?.setContentSize(700, 420);
+    sandArea?.getComponent(UITransform)?.setContentSize(680, 620);
+    conveyorArea?.getComponent(UITransform)?.setContentSize(676, 132);
+    bucketPoolArea?.getComponent(UITransform)?.setContentSize(704, 322);
+  }
+
+  private ensureBattleWorkshopBackdrop(): void {
+    let backdrop = this.node.getChildByName("WorkshopRuntimeBackdrop");
+    if (backdrop === null) {
+      backdrop = new Node("WorkshopRuntimeBackdrop");
+      this.node.addChild(backdrop);
+      backdrop.addComponent(UITransform);
+      backdrop.addComponent(Graphics);
+    }
+    backdrop.active = true;
+    backdrop.setPosition(0, 0, 0);
+    backdrop.setSiblingIndex(0);
+    backdrop.getComponent(UITransform)?.setContentSize(WORKSHOP_BG_SIZE.width, WORKSHOP_BG_SIZE.height);
+    drawWorkshopRuntimeBackdrop(backdrop.getComponent(Graphics));
   }
 
   private ensureTutorialHint(): void {
@@ -911,4 +930,42 @@ function drawTutorialBackground(graphics: Graphics | null): void {
   graphics.roundRect(-280, -32, 560, 64, 20);
   graphics.fill();
   graphics.stroke();
+}
+
+function drawWorkshopRuntimeBackdrop(graphics: Graphics | null): void {
+  if (graphics === null) {
+    return;
+  }
+  graphics.clear();
+  graphics.fillColor = new Color(255, 255, 255, 36);
+  graphics.roundRect(-356, 100, 712, 594, 34);
+  graphics.fill();
+  graphics.strokeColor = new Color(181, 158, 115, 82);
+  graphics.lineWidth = 3;
+  graphics.roundRect(-356, 100, 712, 594, 34);
+  graphics.stroke();
+
+  graphics.fillColor = new Color(231, 235, 227, 150);
+  graphics.roundRect(-360, -212, 720, 166, 28);
+  graphics.fill();
+  graphics.strokeColor = new Color(130, 145, 138, 86);
+  graphics.lineWidth = 2;
+  graphics.roundRect(-360, -212, 720, 166, 28);
+  graphics.stroke();
+
+  graphics.fillColor = new Color(244, 236, 215, 190);
+  graphics.roundRect(-360, -590, 720, 382, 32);
+  graphics.fill();
+  graphics.strokeColor = new Color(181, 158, 115, 92);
+  graphics.lineWidth = 3;
+  graphics.roundRect(-360, -590, 720, 382, 32);
+  graphics.stroke();
+
+  graphics.strokeColor = new Color(181, 158, 115, 42);
+  graphics.lineWidth = 2;
+  for (let y = -540; y <= -260; y += 58) {
+    graphics.moveTo(-326, y);
+    graphics.lineTo(326, y + 10);
+    graphics.stroke();
+  }
 }

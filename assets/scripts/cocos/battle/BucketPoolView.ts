@@ -9,8 +9,8 @@ import type { BattleUiActions } from "./BattleViewContract";
 
 const { ccclass, property } = _decorator;
 
-const BUCKET_POOL_SCALE = 0.78;
-const BUCKET_POOL_VIEWPORT_HEIGHT = 438;
+const BUCKET_POOL_SCALE = 0.64;
+const BUCKET_POOL_VIEWPORT_HEIGHT = 312;
 const BUCKET_POOL_SHIFT_DURATION = 0.16;
 const GENERATED_BUCKET_PREFIX = "RuntimeBucketButton";
 const TEXT_COLOR = new Color(38, 48, 45, 255);
@@ -301,7 +301,7 @@ export class BucketPoolView extends Component {
     setContentSize(this.contentNode, nextModel.panelWidth, nextModel.contentHeight);
     setContentSize(grid, nextModel.panelWidth, nextModel.contentHeight);
     setContentSize(slotLayer, nextModel.panelWidth, nextModel.contentHeight);
-    this.contentNode?.setPosition(0, -nextModel.scrollableOverflow / 2, 0);
+    this.contentNode?.setPosition(0, Math.min(0, 42 - nextModel.scrollableOverflow / 2), 0);
     grid?.setPosition(0, 0, 0);
     slotLayer?.setPosition(0, 0, 0);
 
@@ -317,9 +317,9 @@ export class BucketPoolView extends Component {
       drawRuntimeSlotArt(slot);
       setContentSize(buttonNode, 132, nextModel.cellHeight);
       const visualRoot = this.getBucketVisualRoot(index);
-      visualRoot?.setPosition(0, 24, 0);
+      visualRoot?.setPosition(0, 14, 0);
       const label = this.bucketLabels[index];
-      label.node.setPosition(0, -58, 0);
+      label.node.setPosition(0, -46, 0);
       setContentSize(label.node, 128, 30);
       this.styleBucketLabel(label);
     }
@@ -345,7 +345,7 @@ export class BucketPoolView extends Component {
     if (root !== null) {
       Tween.stopAllByTarget(root);
       root.setScale(1, 1, 1);
-      root.setPosition(0, 24, 0);
+      root.setPosition(0, 14, 0);
       const opacity = root.getComponent(UIOpacity) ?? root.addComponent(UIOpacity);
       opacity.opacity = 255;
       clearBucketVisual(root);
@@ -354,7 +354,7 @@ export class BucketPoolView extends Component {
       label.string = "";
       label.node.active = false;
       label.node.setScale(1, 1, 1);
-      label.node.setPosition(0, -58, 0);
+      label.node.setPosition(0, -46, 0);
       this.styleBucketLabel(label);
     }
   }
@@ -577,7 +577,7 @@ export class BucketPoolView extends Component {
       return;
     }
 
-    root.setPosition(0, kind === "selected" ? 22 : 14, 0);
+    root.setPosition(0, kind === "selected" ? 20 : 14, 0);
     const revision = this.visualRevision;
     const bucketInstanceId = bucket.instanceId;
     renderBucketVisual(root, bucket, {

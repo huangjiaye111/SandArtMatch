@@ -1,6 +1,5 @@
-import { _decorator, Button, Color, Component, Label, Node, Sprite, UITransform } from "cc";
-import type { BattlePresentationEvent } from "./BattleViewContract";
-import type { BattleUiActions } from "./BattleViewContract";
+import { _decorator, BlockInputEvents, Button, Color, Component, Graphics, Label, Node, Sprite, Tween, UIOpacity, UITransform, Vec3, tween } from "cc";
+import type { BattlePresentationEvent, BattleUiActions } from "./BattleViewContract";
 
 const { ccclass, property } = _decorator;
 
@@ -11,6 +10,10 @@ const BUTTON_OUTLINE_COLOR = new Color(38, 48, 45, 135);
 const SHADOW_COLOR = new Color(38, 48, 45, 90);
 const UTILITY_NORMAL_COLOR = new Color(47, 183, 164, 255);
 const UTILITY_PRESSED_COLOR = new Color(34, 141, 130, 255);
+const RESULT_PANEL_FILL = new Color(255, 250, 236, 246);
+const RESULT_PANEL_STROKE = new Color(181, 158, 115, 210);
+const RESULT_OVERLAY = new Color(24, 31, 29, 90);
+const RESULT_FAIL = new Color(242, 124, 138, 255);
 
 @ccclass("ToolbarView")
 export class ToolbarView extends Component {
@@ -35,6 +38,7 @@ export class ToolbarView extends Component {
   private restartHandler: (() => void) | null = null;
   private nextHandler: (() => void) | null = null;
   private homeHandler: (() => void) | null = null;
+  private resultOpacity: UIOpacity | null = null;
 
   public setActions(actions: BattleUiActions): void {
     this.actions = actions;
@@ -65,7 +69,7 @@ export class ToolbarView extends Component {
   }
 
   public showLose(reason?: string): void {
-    this.setResult(reason === undefined || reason.length === 0 ? "没有可吸收或可合并的操作" : reason, "deadlock");
+    this.setResult(reason === undefined || reason.length === 0 ? "No moves left" : reason, "deadlock");
     this.setNextVisible(false);
   }
 
@@ -79,9 +83,7 @@ export class ToolbarView extends Component {
     for (const event of events) {
       if (event.type === "invalidClick") {
         this.showFeedback(event.message);
-      } else if (event.type === "victory") {
-        this.flashResultPanel();
-      } else if (event.type === "deadlock") {
+      } else if (event.type === "victory" || event.type === "deadlock") {
         this.flashResultPanel();
       }
     }
@@ -90,7 +92,9 @@ export class ToolbarView extends Component {
   public hideResult(): void {
     if (this.resultRoot !== null) {
       this.resultRoot.active = false;
+      this.resultRoot.setScale(1, 1, 1);
     }
+    this.setResultOpacity(0);
     this.setNextVisible(false);
     this.setResultIcon("win");
     if (this.resultLabel !== null) {
@@ -116,6 +120,7 @@ export class ToolbarView extends Component {
     this.ensureResultNextButton();
     this.ensureResultHomeButton();
     this.clearButtonHandlers();
+
     const settingsButton = this.getSettingsButton();
     if (settingsButton !== null) {
       this.settingsHandler = () => {
@@ -124,14 +129,16 @@ export class ToolbarView extends Component {
       };
       settingsButton.node.on(Button.EventType.CLICK, this.settingsHandler, this);
     }
+
     const toolbarHomeButton = this.getToolbarHomeButton();
-    if (toolbarHomeButton !== null) {
+    if (toolbarHomeButton !== null && toolbarHomeButton.node.active) {
       this.toolbarHomeHandler = () => {
         this.flashButton(toolbarHomeButton, "pressed", "Home");
         this.actions?.home();
       };
       toolbarHomeButton.node.on(Button.EventType.CLICK, this.toolbarHomeHandler, this);
     }
+
     const restartButton = this.getRestartButton();
     if (restartButton !== null) {
       this.restartHandler = () => {
@@ -140,6 +147,7 @@ export class ToolbarView extends Component {
       };
       restartButton.node.on(Button.EventType.CLICK, this.restartHandler, this);
     }
+
     const nextButton = this.getNextButton();
     if (nextButton !== null) {
       this.nextHandler = () => {
@@ -148,6 +156,7 @@ export class ToolbarView extends Component {
       };
       nextButton.node.on(Button.EventType.CLICK, this.nextHandler, this);
     }
+
     const homeButton = this.getHomeButton();
     if (homeButton !== null) {
       this.homeHandler = () => {
@@ -181,28 +190,29 @@ export class ToolbarView extends Component {
   private setResult(text: string, icon: "win" | "deadlock"): void {
     if (this.resultRoot !== null) {
       this.resultRoot.active = true;
-      this.resultRoot.setScale(0.96, 0.96, 1);
-      this.scheduleOnce(() => {
-        if (this.isValid && this.resultRoot !== null && this.resultRoot.isValid) {
-          this.resultRoot.setScale(1, 1, 1);
-        }
-      }, 0.08);
+      this.resultRoot.setScale(0.94, 0.94, 1);
+      Tween.stopAllByTarget(this.resultRoot);
+      tween(this.resultRoot).to(0.12, { scale: new Vec3(1, 1, 1) }).start();
     }
+    this.setResultOpacity(255);
     this.setResultIcon(icon);
     if (this.resultLabel !== null) {
       this.resultLabel.string = text;
       styleLabel(this.resultLabel, 42, 50, TEXT_COLOR, TEXT_OUTLINE_COLOR);
     }
+    this.ensureResultBackdrop(icon);
   }
 
   private applyToolbarLayout(): void {
     const settingsButton = this.getSettingsButton();
-    this.levelLabel?.node.setPosition(-245, 0, 0);
-    settingsButton?.node.setPosition(234, 0, 0);
+    this.levelLabel?.node.setPosition(-200, 0, 0);
+    settingsButton?.node.setPosition(228, 0, 0);
     styleUtilityButton(settingsButton, "Settings");
     const toolbarHomeButton = this.getToolbarHomeButton();
-    toolbarHomeButton?.node.setPosition(112, 0, 0);
-    styleUtilityButton(toolbarHomeButton, "Home");
+    if (toolbarHomeButton !== null) {
+      toolbarHomeButton.node.active = false;
+      toolbarHomeButton.interactable = false;
+    }
     const restartButton = this.getRestartButton();
     if (restartButton !== null) {
       restartButton.node.setPosition(0, -120, 0);
@@ -219,7 +229,7 @@ export class ToolbarView extends Component {
       styleUtilityButton(homeButton, "Home");
     }
     if (this.levelLabel !== null) {
-      setContentSize(this.levelLabel.node, 160, 46);
+      setContentSize(this.levelLabel.node, 260, 46);
       styleLabel(this.levelLabel, 26, 32, TEXT_COLOR, TEXT_OUTLINE_COLOR);
     }
   }
@@ -275,12 +285,12 @@ export class ToolbarView extends Component {
     }
     const existing = this.getRestartButton();
     if (existing !== null) {
-      this.ensureRestartButtonLayout(existing);
+      this.ensureResultButtonLayout(existing, "Replay");
       return existing;
     }
     const buttonNode = createResultButtonNode("RestartButton");
     this.resultRoot.addChild(buttonNode);
-    this.ensureRestartButtonLayout(buttonNode.getComponent(Button));
+    this.ensureResultButtonLayout(buttonNode.getComponent(Button), "Replay");
     return buttonNode.getComponent(Button);
   }
 
@@ -314,27 +324,19 @@ export class ToolbarView extends Component {
     return buttonNode.getComponent(Button);
   }
 
-  private ensureRestartButtonLayout(button: Button | null): void {
-    this.ensureResultButtonLayout(button, "Replay");
-  }
-
   private ensureResultButtonLayout(button: Button | null, labelText: string): void {
     if (button === null) {
       return;
     }
     const node = button.node;
-    setContentSize(node, 156, 60);
-    const background = node.getChildByName("Background") ?? null;
-    if (background !== null) {
-      setContentSize(background, 156, 60);
-    } else if (node.getComponent(Sprite) !== null) {
-      setContentSize(node, 156, 60);
-    }
+    setContentSize(node, 188, 70);
+    const background = ensureButtonBackground(node, 188, 70);
+    drawButtonBackground(background, 188, 70, 24, UTILITY_NORMAL_COLOR, new Color(24, 31, 29, 110));
     const label = node.getChildByName("Label")?.getComponent(Label) ?? null;
     if (label !== null) {
       label.string = labelText;
       label.node.setPosition(0, 0, 0);
-      setContentSize(label.node, 120, 32);
+      setContentSize(label.node, 148, 36);
       styleLabel(label, 24, 30, BUTTON_TEXT_COLOR, BUTTON_OUTLINE_COLOR);
     }
   }
@@ -360,9 +362,21 @@ export class ToolbarView extends Component {
       return;
     }
     const background = button.node.getChildByName("Background");
-    const sprite = background?.getComponent(Sprite) ?? null;
-    if (sprite !== null) {
-      sprite.color = kind === "error" ? new Color(239, 106, 91, 255) : UTILITY_PRESSED_COLOR;
+    const graphics = background?.getComponent(Graphics) ?? null;
+    if (graphics !== null) {
+      drawButtonBackground(
+        graphics,
+        background?.getComponent(UITransform)?.contentSize.width ?? 142,
+        background?.getComponent(UITransform)?.contentSize.height ?? 68,
+        22,
+        kind === "error" ? RESULT_FAIL : UTILITY_PRESSED_COLOR,
+        new Color(24, 31, 29, 110),
+      );
+    } else {
+      const sprite = background?.getComponent(Sprite) ?? null;
+      if (sprite !== null) {
+        sprite.color = kind === "error" ? RESULT_FAIL : UTILITY_PRESSED_COLOR;
+      }
     }
     button.node.setScale(0.95, 0.95, 1);
     this.scheduleOnce(() => {
@@ -379,11 +393,8 @@ export class ToolbarView extends Component {
       return;
     }
     this.resultRoot.setScale(0.96, 0.96, 1);
-    this.scheduleOnce(() => {
-      if (this.isValid && this.resultRoot !== null && this.resultRoot.isValid) {
-        this.resultRoot.setScale(1, 1, 1);
-      }
-    }, 0.1);
+    Tween.stopAllByTarget(this.resultRoot);
+    tween(this.resultRoot).to(0.1, { scale: new Vec3(1, 1, 1) }).start();
   }
 
   private setResultIcon(state: "win" | "deadlock"): void {
@@ -396,6 +407,63 @@ export class ToolbarView extends Component {
     if (deadlockIcon !== null) {
       deadlockIcon.active = state === "deadlock";
     }
+  }
+
+  private ensureResultBackdrop(icon: "win" | "deadlock"): void {
+    if (this.resultRoot === null) {
+      return;
+    }
+    const dimLayer = ensureNode(this.resultRoot, "ResultDimLayer", 750, 1334);
+    dimLayer.setPosition(0, -40, 0);
+    dimLayer.addComponent(BlockInputEvents);
+    const dimGraphics = dimLayer.getComponent(Graphics);
+    if (dimGraphics !== null) {
+      dimGraphics.clear();
+      dimGraphics.fillColor = RESULT_OVERLAY;
+      dimGraphics.rect(-375, -667, 750, 1334);
+      dimGraphics.fill();
+    }
+
+    const panel = this.resultRoot.getChildByName("Background")?.getComponent(Graphics) ?? null;
+    if (panel !== null) {
+      panel.clear();
+      panel.fillColor = RESULT_PANEL_FILL;
+      panel.strokeColor = RESULT_PANEL_STROKE;
+      panel.lineWidth = 4;
+      panel.roundRect(-310, -228, 620, 460, 36);
+      panel.fill();
+      panel.stroke();
+      panel.fillColor = new Color(255, 255, 255, 110);
+      panel.roundRect(-274, 162, 548, 14, 7);
+      panel.fill();
+      panel.fillColor = icon === "win" ? new Color(245, 184, 75, 76) : new Color(242, 124, 138, 76);
+      panel.roundRect(-274, 146, 548, 10, 5);
+      panel.fill();
+    }
+
+    const label = this.resultLabel;
+    if (label !== null) {
+      label.node.setPosition(0, 8, 0);
+      setContentSize(label.node, 500, 92);
+    }
+    const iconRoot = this.resultRoot.getChildByName("ResultIcon");
+    iconRoot?.setPosition(0, 126, 0);
+    const restartButton = this.getRestartButton();
+    const nextButton = this.getNextButton();
+    const homeButton = this.getHomeButton();
+    restartButton?.node.setPosition(nextButton !== null && nextButton.node.active ? -108 : -94, -136, 0);
+    nextButton?.node.setPosition(0, -136, 0);
+    homeButton?.node.setPosition(nextButton !== null && nextButton.node.active ? 108 : 94, -136, 0);
+    this.setResultOpacity(255);
+  }
+
+  private setResultOpacity(value: number): void {
+    if (this.resultRoot === null) {
+      return;
+    }
+    const opacity = this.resultOpacity ?? this.resultRoot.getComponent(UIOpacity) ?? this.resultRoot.addComponent(UIOpacity);
+    this.resultOpacity = opacity;
+    opacity.opacity = value;
   }
 }
 
@@ -410,12 +478,17 @@ function styleUtilityButton(button: Button | null, fallbackText: string): void {
 
   const background = button.node.getChildByName("Background");
   setContentSize(background ?? null, width, 68);
-  const backgroundSprite = background?.getComponent(Sprite) ?? null;
-  const nodeSprite = background === null ? button.node.getComponent(Sprite) ?? null : null;
-  if (backgroundSprite !== null) {
-    backgroundSprite.color = UTILITY_NORMAL_COLOR;
-  } else if (nodeSprite !== null) {
-    nodeSprite.color = UTILITY_NORMAL_COLOR;
+  const backgroundGraphics = background?.getComponent(Graphics) ?? null;
+  if (backgroundGraphics !== null) {
+    drawButtonBackground(backgroundGraphics, width, 68, 22, UTILITY_NORMAL_COLOR, new Color(24, 31, 29, 110));
+  } else {
+    const backgroundSprite = background?.getComponent(Sprite) ?? null;
+    const nodeSprite = background === null ? button.node.getComponent(Sprite) ?? null : null;
+    if (backgroundSprite !== null) {
+      backgroundSprite.color = UTILITY_NORMAL_COLOR;
+    } else if (nodeSprite !== null) {
+      nodeSprite.color = UTILITY_NORMAL_COLOR;
+    }
   }
 
   const icon = button.node.getChildByName("Icon");
@@ -437,6 +510,50 @@ function setContentSize(node: Node | null, width: number, height: number): void 
   node?.getComponent(UITransform)?.setContentSize(width, height);
 }
 
+function ensureNode(parent: Node, name: string, width: number, height: number): Node {
+  let node = parent.getChildByName(name);
+  if (node === null) {
+    node = new Node(name);
+    node.addComponent(UITransform);
+    node.addComponent(Graphics);
+    parent.addChild(node);
+  }
+  setContentSize(node, width, height);
+  node.active = true;
+  node.setSiblingIndex(0);
+  return node;
+}
+
+function ensureButtonBackground(node: Node, width: number, height: number): Graphics {
+  let background = node.getChildByName("Background");
+  if (background === null) {
+    background = new Node("Background");
+    background.addComponent(UITransform);
+    background.addComponent(Graphics);
+    node.addChild(background);
+  }
+  background.setSiblingIndex(0);
+  background.setPosition(0, 0, 0);
+  setContentSize(background, width, height);
+  return background.getComponent(Graphics) ?? background.addComponent(Graphics);
+}
+
+function drawButtonBackground(graphics: Graphics | null, width: number, height: number, radius: number, fill: Color, stroke: Color): void {
+  if (graphics === null) {
+    return;
+  }
+  graphics.clear();
+  graphics.fillColor = fill;
+  graphics.strokeColor = stroke;
+  graphics.lineWidth = 3;
+  graphics.roundRect(-width / 2, -height / 2, width, height, radius);
+  graphics.fill();
+  graphics.stroke();
+  graphics.fillColor = new Color(255, 255, 255, 48);
+  graphics.roundRect(-width / 2 + 16, height / 2 - 20, width - 32, 8, 4);
+  graphics.fill();
+}
+
 function createResultButtonNode(name: string): Node {
   const buttonNode = new Node(name);
   buttonNode.addComponent(UITransform);
@@ -446,6 +563,7 @@ function createResultButtonNode(name: string): Node {
   const background = new Node("Background");
   background.addComponent(UITransform);
   background.addComponent(Sprite);
+  background.addComponent(Graphics);
   buttonNode.addChild(background);
 
   const labelNode = new Node("Label");
