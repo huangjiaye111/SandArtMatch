@@ -1,4 +1,4 @@
-import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, type LevelCatalog } from "../config/LevelCatalog";
+import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, LevelCatalog, type LevelCatalog as LevelCatalogData } from "../config/LevelCatalog";
 
 export const GAME_PROGRESS_SCHEMA_VERSION = 1;
 
@@ -20,7 +20,7 @@ export interface HomeSelectionState {
   readonly selectedLevelId: string;
 }
 
-export function createDefaultGameProgress(catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG): GameProgress {
+export function createDefaultGameProgress(catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG): GameProgress {
   const first = getFirstLevelEntry(catalog);
   return freezeProgress({
     schemaVersion: GAME_PROGRESS_SCHEMA_VERSION,
@@ -30,7 +30,7 @@ export function createDefaultGameProgress(catalog: LevelCatalog = BUILT_IN_LEVEL
   });
 }
 
-export function normalizeGameProgress(value: unknown, catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG): GameProgress {
+export function normalizeGameProgress(value: unknown, catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG): GameProgress {
   if (!isRecord(value) || value.schemaVersion !== GAME_PROGRESS_SCHEMA_VERSION) {
     return createDefaultGameProgress(catalog);
   }
@@ -55,11 +55,11 @@ export function normalizeGameProgress(value: unknown, catalog: LevelCatalog = BU
 export function isLevelUnlocked(
   progress: GameProgress,
   levelId: string,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): boolean {
   const entry = getLevelCatalogEntry(levelId, catalog);
   const highest = getLevelCatalogEntry(progress.highestUnlockedLevel, catalog);
-  return entry.initialUnlocked || entry.displayNumber <= highest.displayNumber;
+  return entry.initialUnlocked || entry.order <= highest.order;
 }
 
 export function isLevelCompleted(progress: GameProgress, levelId: string): boolean {
@@ -68,25 +68,34 @@ export function isLevelCompleted(progress: GameProgress, levelId: string): boole
 
 export function getRecommendedLevelId(
   progress: GameProgress,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): string {
-  const firstIncomplete = catalog.find((entry) => isLevelUnlocked(progress, entry.levelId, catalog) && !isLevelCompleted(progress, entry.levelId));
+  const firstIncomplete = LevelCatalog.getAll(catalog).find((entry) =>
+    isLevelUnlocked(progress, entry.levelId, catalog) && !isLevelCompleted(progress, entry.levelId)
+  );
   return firstIncomplete?.levelId ?? progress.highestUnlockedLevel;
 }
 
 export function getContinueLevelId(
   progress: GameProgress,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): string {
-  if (progress.lastSelectedLevelId !== null && isLevelUnlocked(progress, progress.lastSelectedLevelId, catalog)) {
+  if (
+    progress.lastSelectedLevelId !== null &&
+    isKnownLevelId(progress.lastSelectedLevelId, catalog) &&
+    isLevelUnlocked(progress, progress.lastSelectedLevelId, catalog)
+  ) {
     return progress.lastSelectedLevelId;
   }
-  return getRecommendedLevelId(progress, catalog);
+  if (isKnownLevelId(progress.highestUnlockedLevel, catalog) && isLevelUnlocked(progress, progress.highestUnlockedLevel, catalog)) {
+    return progress.highestUnlockedLevel;
+  }
+  return getFirstLevelEntry(catalog).levelId;
 }
 
 export function getHomeSelectionState(
   progress: GameProgress,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): HomeSelectionState {
   return Object.freeze({
     selectedLevelId: getContinueLevelId(progress, catalog),
@@ -96,7 +105,7 @@ export function getHomeSelectionState(
 export function selectLevelInProgress(
   progress: GameProgress,
   levelId: string,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): GameProgress {
   getLevelCatalogEntry(levelId, catalog);
   return freezeProgress({ ...progress, lastSelectedLevelId: levelId });
@@ -105,15 +114,15 @@ export function selectLevelInProgress(
 export function completeLevelInProgress(
   progress: GameProgress,
   levelId: string,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): GameProgress {
   const entry = getLevelCatalogEntry(levelId, catalog);
   const completed = progress.completedLevelIds.includes(levelId)
     ? [...progress.completedLevelIds]
     : [...progress.completedLevelIds, levelId];
   const highest = getLevelCatalogEntry(progress.highestUnlockedLevel, catalog);
-  const next = entry.nextLevelId === null ? null : getLevelCatalogEntry(entry.nextLevelId, catalog);
-  const highestUnlockedLevel = next !== null && next.displayNumber > highest.displayNumber
+  const next = LevelCatalog.getNextLevel(entry.levelId, catalog);
+  const highestUnlockedLevel = next !== null && next.order > highest.order
     ? next.levelId
     : progress.highestUnlockedLevel;
 
@@ -125,12 +134,36 @@ export function completeLevelInProgress(
   });
 }
 
+export function unlockLevelInProgress(
+  progress: GameProgress,
+  levelId: string,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
+): GameProgress {
+  const entry = getLevelCatalogEntry(levelId, catalog);
+  const highest = getLevelCatalogEntry(progress.highestUnlockedLevel, catalog);
+  const highestUnlockedLevel = entry.order > highest.order ? entry.levelId : progress.highestUnlockedLevel;
+
+  return freezeProgress({
+    schemaVersion: GAME_PROGRESS_SCHEMA_VERSION,
+    highestUnlockedLevel,
+    completedLevelIds: progress.completedLevelIds,
+    lastSelectedLevelId: progress.lastSelectedLevelId,
+  });
+}
+
+export function getHighestUnlockedLevel(
+  progress: GameProgress,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
+): string {
+  return getLevelCatalogEntry(progress.highestUnlockedLevel, catalog).levelId;
+}
+
 export function getLevelUnlockStates(
   progress: GameProgress,
-  catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+  catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
 ): readonly LevelUnlockState[] {
   const recommended = getRecommendedLevelId(progress, catalog);
-  return Object.freeze(catalog.map((entry) => Object.freeze({
+  return Object.freeze(LevelCatalog.getAll(catalog).map((entry) => Object.freeze({
     levelId: entry.levelId,
     unlocked: isLevelUnlocked(progress, entry.levelId, catalog),
     completed: isLevelCompleted(progress, entry.levelId),
@@ -147,7 +180,7 @@ function freezeProgress(progress: GameProgress): GameProgress {
   });
 }
 
-function uniqueKnownLevelIds(values: readonly unknown[], catalog: LevelCatalog): readonly string[] {
+function uniqueKnownLevelIds(values: readonly unknown[], catalog: LevelCatalogData): readonly string[] {
   const ids: string[] = [];
   for (const value of values) {
     if (typeof value === "string" && isKnownLevelId(value, catalog) && !ids.includes(value)) {
@@ -157,8 +190,8 @@ function uniqueKnownLevelIds(values: readonly unknown[], catalog: LevelCatalog):
   return ids;
 }
 
-function isKnownLevelId(levelId: string, catalog: LevelCatalog): boolean {
-  return catalog.some((entry) => entry.levelId === levelId);
+function isKnownLevelId(levelId: string, catalog: LevelCatalogData): boolean {
+  return LevelCatalog.has(levelId, catalog);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

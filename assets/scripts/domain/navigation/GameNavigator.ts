@@ -1,4 +1,6 @@
-import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, type LevelCatalog } from "../config/LevelCatalog";
+import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, LevelCatalog, type LevelCatalog as LevelCatalogData, type LevelCatalogEntry } from "../config/LevelCatalog";
+import type { ThemeConfig, ThemeId } from "../../theme/ThemeTypes";
+import { ThemeCatalog } from "../../theme/ThemeCatalog";
 import {
   completeLevelInProgress,
   getContinueLevelId,
@@ -15,7 +17,9 @@ export interface SceneDriver {
 }
 
 export interface GameSession {
+  selectedLevelId: string | null;
   currentLevelId: string | null;
+  currentThemeId: ThemeId | null;
 }
 
 export interface NavigationResult {
@@ -36,13 +40,13 @@ export class GameNavigator {
   private readonly driver: SceneDriver;
   private readonly progressStore: ProgressStore;
   private readonly session: GameSession;
-  private readonly catalog: LevelCatalog;
+  private readonly catalog: LevelCatalogData;
 
   public constructor(
     driver: SceneDriver,
     progressStore: ProgressStore,
     session: GameSession,
-    catalog: LevelCatalog = BUILT_IN_LEVEL_CATALOG,
+    catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
   ) {
     this.driver = driver;
     this.progressStore = progressStore;
@@ -52,6 +56,15 @@ export class GameNavigator {
 
   public getCurrentLevelId(): string | null {
     return this.session.currentLevelId;
+  }
+
+  public getCurrentLevel(): LevelCatalogEntry | null {
+    return this.session.currentLevelId === null ? null : LevelCatalog.getById(this.session.currentLevelId, this.catalog);
+  }
+
+  public getCurrentTheme(): ThemeConfig | null {
+    const level = this.getCurrentLevel();
+    return level === null ? null : ThemeCatalog.get(level.themeId);
   }
 
   public loadProgress(): GameProgress {
@@ -65,6 +78,7 @@ export class GameNavigator {
       return Object.freeze({ accepted: false, sceneName: null, levelId, reason: "levelLocked" });
     }
     this.progressStore.save(selectLevelInProgress(progress, levelId, this.catalog));
+    this.session.selectedLevelId = levelId;
     return Object.freeze({ accepted: true, sceneName: null, levelId });
   }
 
@@ -95,11 +109,11 @@ export class GameNavigator {
     if (currentLevelId === null) {
       return Object.freeze({ accepted: false, sceneName: null, levelId: null, reason: "missingCurrentLevel" });
     }
-    const nextLevelId = getLevelCatalogEntry(currentLevelId, this.catalog).nextLevelId;
-    if (nextLevelId === null) {
+    const next = LevelCatalog.getNextLevel(currentLevelId, this.catalog);
+    if (next === null) {
       return Object.freeze({ accepted: false, sceneName: null, levelId: currentLevelId, reason: "missingNextLevel" });
     }
-    return this.startLevel(nextLevelId);
+    return this.startLevel(next.levelId);
   }
 
   public completeCurrentLevelVictory(): VictoryProgressResult {
@@ -109,7 +123,7 @@ export class GameNavigator {
     }
     const progress = completeLevelInProgress(this.progressStore.load(), currentLevelId, this.catalog);
     this.progressStore.save(progress);
-    const nextLevelId = getLevelCatalogEntry(currentLevelId, this.catalog).nextLevelId;
+    const nextLevelId = LevelCatalog.getNextLevel(currentLevelId, this.catalog)?.levelId ?? null;
     return Object.freeze({
       progress,
       nextLevelId,
@@ -119,7 +133,9 @@ export class GameNavigator {
 
   public resetProgress(): void {
     this.progressStore.reset();
+    this.session.selectedLevelId = null;
     this.session.currentLevelId = null;
+    this.session.currentThemeId = null;
   }
 
   private async navigate(sceneName: GameSceneName, levelId: string | null): Promise<NavigationResult> {
@@ -128,7 +144,7 @@ export class GameNavigator {
     }
     this.navigationInFlight = true;
     if (levelId !== null) {
-      this.session.currentLevelId = levelId;
+      this.applyCurrentLevel(levelId);
     }
     try {
       await this.driver.loadScene(sceneName);
@@ -143,5 +159,12 @@ export class GameNavigator {
     } finally {
       this.navigationInFlight = false;
     }
+  }
+
+  private applyCurrentLevel(levelId: string): void {
+    const level = getLevelCatalogEntry(levelId, this.catalog);
+    this.session.selectedLevelId = level.levelId;
+    this.session.currentLevelId = level.levelId;
+    this.session.currentThemeId = level.themeId;
   }
 }

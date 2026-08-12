@@ -4,6 +4,8 @@ import { BUILT_IN_LEVEL_CATALOG } from "../../assets/scripts/domain/config/Level
 import { GameNavigator, type GameSceneName, type SceneDriver } from "../../assets/scripts/domain/navigation/GameNavigator.ts";
 import { completeLevelInProgress, createDefaultGameProgress, selectLevelInProgress } from "../../assets/scripts/domain/progress/GameProgress.ts";
 import { createProgressStore, MemoryProgressStorage } from "../../assets/scripts/domain/progress/ProgressStore.ts";
+import { ThemeCatalog } from "../../assets/scripts/theme/ThemeCatalog.ts";
+import { createThemeRuntime } from "../../assets/scripts/theme/ThemeRuntime.ts";
 
 class RecordingSceneDriver implements SceneDriver {
   public readonly loads: GameSceneName[] = [];
@@ -21,7 +23,7 @@ function createNavigator() {
   const storage = new MemoryProgressStorage();
   const store = createProgressStore(storage);
   const driver = new RecordingSceneDriver();
-  const session = { currentLevelId: null };
+  const session = { selectedLevelId: null, currentLevelId: null, currentThemeId: null };
   const navigator = new GameNavigator(driver, store, session);
   return { driver, navigator, session, store };
 }
@@ -40,22 +42,25 @@ describe("GameNavigator", () => {
 
   it("rejects locked levels even if UI is bypassed", async () => {
     const { driver, navigator } = createNavigator();
-    const result = await navigator.startLevel("level-001");
-    assert.equal(result.accepted, true);
-    assert.deepEqual(driver.loads, ["Battle"]);
+    const result = await navigator.startLevel("level-002");
+    assert.equal(result.accepted, false);
+    assert.equal(result.reason, "levelLocked");
+    assert.deepEqual(driver.loads, []);
   });
 
-  it("does not expose a next level for the formal catalog", async () => {
-    const { navigator } = createNavigator();
+  it("unlocks and starts the next catalog level after victory", async () => {
+    const { navigator, session } = createNavigator();
     await navigator.startLevel("level-001");
 
     const victory = navigator.completeCurrentLevelVictory();
     const next = await navigator.startNextLevel();
 
-    assert.equal(victory.nextLevelId, null);
-    assert.equal(victory.canStartNext, false);
-    assert.equal(next.accepted, false);
-    assert.equal(next.reason, "missingNextLevel");
+    assert.equal(victory.nextLevelId, "level-002");
+    assert.equal(victory.canStartNext, true);
+    assert.equal(next.accepted, true);
+    assert.equal(next.levelId, "level-002");
+    assert.equal(session.currentLevelId, "level-002");
+    assert.equal(session.currentThemeId, "beach-holiday");
   });
 
   it("replays without changing progress", async () => {
@@ -93,6 +98,7 @@ describe("GameNavigator", () => {
 
     store.save({ ...store.load(), lastSelectedLevelId: "missing-level" });
     session.currentLevelId = null;
+    session.currentThemeId = null;
     await navigator.continueOrStartFirstLevel();
     assert.equal(session.currentLevelId, "level-001");
   });
@@ -110,6 +116,49 @@ describe("GameNavigator", () => {
     assert.equal(session.currentLevelId, "level-001");
     assert.deepEqual(store.load().completedLevelIds, ["level-001"]);
     assert.deepEqual(driver.loads, ["Battle", "Home"]);
+  });
+
+  it("returns a safe missingNextLevel result on the final level", async () => {
+    const { navigator, store } = createNavigator();
+    store.unlockLevel("level-004");
+    await navigator.startLevel("level-004");
+
+    const victory = navigator.completeCurrentLevelVictory();
+    const next = await navigator.startNextLevel();
+
+    assert.equal(victory.nextLevelId, null);
+    assert.equal(victory.canStartNext, false);
+    assert.equal(next.accepted, false);
+    assert.equal(next.reason, "missingNextLevel");
+  });
+
+  it("derives the current theme from the selected catalog level", async () => {
+    const { navigator, session, store } = createNavigator();
+    store.unlockLevel("level-003");
+    await navigator.startLevel("level-003");
+
+    assert.equal(session.selectedLevelId, "level-003");
+    assert.equal(session.currentLevelId, "level-003");
+    assert.equal(session.currentThemeId, "cozy-home");
+    assert.equal(navigator.getCurrentTheme()?.id, "cozy-home");
+    assert.equal(createThemeRuntime(session).getCurrentTheme().id, "cozy-home");
+  });
+
+  it("falls back safely for an invalid theme id and warns", () => {
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (message?: unknown): void => {
+      warnings.push(String(message));
+    };
+
+    try {
+      const theme = ThemeCatalog.get("missing-theme");
+      assert.equal(theme.id, "spring-garden");
+      assert.equal(warnings.length, 1);
+      assert.equal(warnings[0].includes("missing-theme"), true);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   it("keeps legacy invalid IDs normalized by the catalog", () => {

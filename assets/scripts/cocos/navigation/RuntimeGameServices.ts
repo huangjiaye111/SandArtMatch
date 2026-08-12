@@ -31,7 +31,7 @@ class CocosSceneDriver implements SceneDriver {
   }
 }
 
-const session: GameSession = { currentLevelId: null };
+const session: GameSession = { selectedLevelId: null, currentLevelId: null, currentThemeId: null };
 let progressStore: ProgressStore | null = null;
 let navigator: GameNavigator | null = null;
 

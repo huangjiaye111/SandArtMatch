@@ -1,5 +1,14 @@
 import { BUILT_IN_LEVEL_CATALOG, type LevelCatalog } from "../config/LevelCatalog";
-import { createDefaultGameProgress, normalizeGameProgress, type GameProgress } from "./GameProgress";
+import {
+  createDefaultGameProgress,
+  completeLevelInProgress,
+  getHighestUnlockedLevel,
+  isLevelCompleted,
+  isLevelUnlocked,
+  normalizeGameProgress,
+  unlockLevelInProgress,
+  type GameProgress,
+} from "./GameProgress";
 
 export const DEFAULT_PROGRESS_STORAGE_KEY = "sand-art-match.progress.v1";
 
@@ -13,6 +22,11 @@ export interface ProgressStore {
   load(): GameProgress;
   save(progress: GameProgress): void;
   reset(): void;
+  isLevelUnlocked(levelId: string): boolean;
+  isLevelCompleted(levelId: string): boolean;
+  completeLevel(levelId: string): GameProgress;
+  unlockLevel(levelId: string): GameProgress;
+  getHighestUnlockedLevel(): string;
 }
 
 export class JsonProgressStore implements ProgressStore {
@@ -49,6 +63,30 @@ export class JsonProgressStore implements ProgressStore {
 
   public reset(): void {
     this.storage.removeItem(this.key);
+  }
+
+  public isLevelUnlocked(levelId: string): boolean {
+    return isLevelUnlocked(this.load(), levelId, this.catalog);
+  }
+
+  public isLevelCompleted(levelId: string): boolean {
+    return isLevelCompleted(this.load(), levelId);
+  }
+
+  public completeLevel(levelId: string): GameProgress {
+    const progress = completeLevelInProgress(this.load(), levelId, this.catalog);
+    this.save(progress);
+    return progress;
+  }
+
+  public unlockLevel(levelId: string): GameProgress {
+    const progress = unlockLevelInProgress(this.load(), levelId, this.catalog);
+    this.save(progress);
+    return progress;
+  }
+
+  public getHighestUnlockedLevel(): string {
+    return getHighestUnlockedLevel(this.load(), this.catalog);
   }
 }
 

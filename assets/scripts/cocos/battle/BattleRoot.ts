@@ -26,6 +26,9 @@ import { createGravityTimelinePlan, groupGravityMovesByIteration, type GravityIt
 import { getSandCanvasPaletteEntry } from "./SandCanvasModel";
 import { BATTLE_PRESENTATION_CONFIG } from "./BattlePresentationConfig";
 import { getRuntimeGameNavigator, getRuntimeGameSession } from "../navigation/RuntimeGameServices";
+import { createThemeRuntime } from "../../theme/ThemeRuntime";
+import type { ThemeConfig } from "../../theme/ThemeTypes";
+import type { LevelCatalogEntry } from "../../domain/config/LevelCatalog";
 
 const { ccclass, property } = _decorator;
 
@@ -95,12 +98,15 @@ export class BattleRoot extends Component implements BattleView {
 
   public onLoad(): void {
     this.hideResult();
-    this.ensureBattleWorkshopBackdrop();
     this.applyRuntimeLayout();
     this.ensureTutorialHint();
     const entry = this.resolveCatalogEntry();
     this.currentCatalogLevelId = entry.levelId;
-    getRuntimeGameSession().currentLevelId = entry.levelId;
+    const session = getRuntimeGameSession();
+    session.selectedLevelId = entry.levelId;
+    session.currentLevelId = entry.levelId;
+    session.currentThemeId = entry.themeId;
+    this.applyRuntimeTheme(entry);
     this.levelText = getDisplayLevelText(entry);
     this.simulation = createBattleSimulationFromLevel(getBuiltInLevelConfigByCatalogLevelId(entry.levelId));
     this.bindChildActions();
@@ -452,7 +458,13 @@ export class BattleRoot extends Component implements BattleView {
     bucketPoolArea?.getComponent(UITransform)?.setContentSize(704, 322);
   }
 
-  private ensureBattleWorkshopBackdrop(): void {
+  private applyRuntimeTheme(entry: LevelCatalogEntry): void {
+    const snapshot = createThemeRuntime(getRuntimeGameSession()).getCurrentSnapshot();
+    this.ensureBattleWorkshopBackdrop(snapshot.theme);
+    console.log(`[BattleRoot] level=${entry.levelId} theme=${snapshot.theme.id} (${snapshot.theme.displayName})`);
+  }
+
+  private ensureBattleWorkshopBackdrop(theme: ThemeConfig): void {
     let backdrop = this.node.getChildByName("WorkshopRuntimeBackdrop");
     if (backdrop === null) {
       backdrop = new Node("WorkshopRuntimeBackdrop");
@@ -464,7 +476,7 @@ export class BattleRoot extends Component implements BattleView {
     backdrop.setPosition(0, 0, 0);
     backdrop.setSiblingIndex(0);
     backdrop.getComponent(UITransform)?.setContentSize(WORKSHOP_BG_SIZE.width, WORKSHOP_BG_SIZE.height);
-    drawWorkshopRuntimeBackdrop(backdrop.getComponent(Graphics));
+    drawWorkshopRuntimeBackdrop(backdrop.getComponent(Graphics), theme);
   }
 
   private ensureTutorialHint(): void {
@@ -932,36 +944,42 @@ function drawTutorialBackground(graphics: Graphics | null): void {
   graphics.stroke();
 }
 
-function drawWorkshopRuntimeBackdrop(graphics: Graphics | null): void {
+function drawWorkshopRuntimeBackdrop(graphics: Graphics | null, theme: ThemeConfig): void {
   if (graphics === null) {
     return;
   }
+  const background = colorFromHex(theme.placeholderBackgroundColor ?? "#F4F6F2", 220);
+  const frame = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 120);
   graphics.clear();
-  graphics.fillColor = new Color(255, 255, 255, 36);
+  graphics.fillColor = background;
+  graphics.rect(-WORKSHOP_BG_SIZE.width / 2, -WORKSHOP_BG_SIZE.height / 2, WORKSHOP_BG_SIZE.width, WORKSHOP_BG_SIZE.height);
+  graphics.fill();
+
+  graphics.fillColor = new Color(255, 255, 255, 44);
   graphics.roundRect(-356, 100, 712, 594, 34);
   graphics.fill();
-  graphics.strokeColor = new Color(181, 158, 115, 82);
+  graphics.strokeColor = frame;
   graphics.lineWidth = 3;
   graphics.roundRect(-356, 100, 712, 594, 34);
   graphics.stroke();
 
-  graphics.fillColor = new Color(231, 235, 227, 150);
+  graphics.fillColor = new Color(255, 255, 255, 86);
   graphics.roundRect(-360, -212, 720, 166, 28);
   graphics.fill();
-  graphics.strokeColor = new Color(130, 145, 138, 86);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#82918A", 86);
   graphics.lineWidth = 2;
   graphics.roundRect(-360, -212, 720, 166, 28);
   graphics.stroke();
 
-  graphics.fillColor = new Color(244, 236, 215, 190);
+  graphics.fillColor = new Color(255, 255, 255, 108);
   graphics.roundRect(-360, -590, 720, 382, 32);
   graphics.fill();
-  graphics.strokeColor = new Color(181, 158, 115, 92);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 92);
   graphics.lineWidth = 3;
   graphics.roundRect(-360, -590, 720, 382, 32);
   graphics.stroke();
 
-  graphics.strokeColor = new Color(181, 158, 115, 42);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 42);
   graphics.lineWidth = 2;
   for (let y = -540; y <= -260; y += 58) {
     graphics.moveTo(-326, y);
