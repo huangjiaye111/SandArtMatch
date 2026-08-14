@@ -43,8 +43,12 @@ import {
   selectVisibleEmptyCarrierIndex,
 } from "../../assets/scripts/cocos/battle/ConveyorCarrierMotionModel.ts";
 import { BATTLE_PRESENTATION_CONFIG } from "../../assets/scripts/cocos/battle/BattlePresentationConfig.ts";
+import { createBattleThemePresentationModel, createBattleToolEntryPresentationModels } from "../../assets/scripts/cocos/battle/BattleThemePresentationModel.ts";
+import { createBattleResultArtworkPresentationModel, createBattleResultPresentationModel } from "../../assets/scripts/cocos/battle/BattleResultPresentationModel.ts";
 import { DEFAULT_BATTLE_SIMULATION_CONFIG } from "../../assets/scripts/domain/battle/BattleSimulationConfig.ts";
 import { BattlePhase } from "../../assets/scripts/domain/battle/BattleState.ts";
+import { BUILT_IN_LEVEL_CATALOG } from "../../assets/scripts/domain/config/LevelCatalog.ts";
+import { ThemeCatalog } from "../../assets/scripts/theme/ThemeCatalog.ts";
 import type { BattlePresentationEvent } from "../../assets/scripts/cocos/battle/BattleViewContract.ts";
 import type { BattleSimulationFrame } from "../../assets/scripts/domain/battle/BattleSimulation.ts";
 
@@ -64,6 +68,116 @@ describe("Presentation visual models", () => {
     assert.equal(model.fillSurfaceVisible, false);
     assert.equal(model.fillRatio, 0);
     assert.equal(model.remainingText, "80");
+  });
+
+  it("maps the current level theme into a typed Battle presentation contract", () => {
+    const level = BUILT_IN_LEVEL_CATALOG[1];
+    const model = createBattleThemePresentationModel(ThemeCatalog.get(level.themeId), level);
+
+    assert.equal(model.levelId, "level-002");
+    assert.equal(model.artworkId, "beach-cat-001");
+    assert.equal(model.themeId, "beach-holiday");
+    assert.equal(model.backgroundAssetKey, "theme.beachHoliday.background");
+    assert.equal(model.frameAssetKey, "theme.beachHoliday.frame");
+    assert.equal(model.decorationAssetKey, "theme.beachHoliday.decoration");
+    assert.deepEqual(model.assetBindings.map((binding) => [binding.slot, binding.spriteFrameKey, binding.required]), [
+      ["background", "theme.beachHoliday.background", false],
+      ["frame", "theme.beachHoliday.frame", false],
+      ["decoration", "theme.beachHoliday.decoration", false],
+    ]);
+    assert.equal(model.placeholderBackgroundColor, "#DDF4FF");
+    assert.equal(model.placeholderFrameColor, "#47A8D8");
+  });
+
+  it("creates victory settlement presentation with dynamic reward and next availability", () => {
+    const model = createBattleResultPresentationModel({
+      phase: BattlePhase.Won,
+      rewardAmount: 25,
+      artworkTitle: "Spring Garden #1",
+      canStartNext: true,
+    });
+
+    assert.equal(model?.state, "victory");
+    assert.equal(model?.title, "Victory!");
+    assert.equal(model?.message, "Level cleared");
+    assert.equal(model?.rewardText, "+25 coins");
+    assert.equal(model?.staminaText, "");
+    assert.equal(model?.detailText, "Level cleared  +25 coins");
+    assert.equal(model?.canStartNext, true);
+    assert.equal(model?.canReplay, true);
+    assert.equal(model?.canGoHome, true);
+    assert.equal(model?.artworkText, "Spring Garden #1");
+    assert.equal(model?.canShare, true);
+    assert.equal(model?.canRevive, false);
+    assert.deepEqual(model?.actions.map((action) => [action.action, action.label, action.visible, action.enabled]), [
+      ["replay", "Replay", true, true],
+      ["next", "Next", true, true],
+      ["home", "Home", true, true],
+    ]);
+    assert.deepEqual(model?.auxActions.map((action) => [action.action, action.label, action.visible, action.enabled]), [
+      ["share", "Share", true, true],
+      ["revive", "Revive", false, false],
+    ]);
+    assert.deepEqual(createBattleResultArtworkPresentationModel(model!), {
+      artworkText: "Spring Garden #1",
+      shareText: "Share",
+      reviveText: "Revive unavailable",
+    });
+  });
+
+  it("creates deadlock settlement presentation without enabling next level", () => {
+    const model = createBattleResultPresentationModel({
+      phase: BattlePhase.Failed,
+      reason: "No absorbable move",
+      staminaCost: 1,
+    });
+
+    assert.equal(model?.state, "deadlock");
+    assert.equal(model?.title, "No moves left");
+    assert.equal(model?.message, "No absorbable move");
+    assert.equal(model?.rewardText, "");
+    assert.equal(model?.staminaText, "-1 stamina");
+    assert.equal(model?.detailText, "No absorbable move  -1 stamina");
+    assert.equal(model?.canStartNext, false);
+    assert.equal(model?.canReplay, true);
+    assert.equal(model?.canGoHome, true);
+    assert.equal(model?.canShare, false);
+    assert.equal(model?.canRevive, true);
+    assert.deepEqual(model?.actions.map((action) => [action.action, action.label, action.visible, action.enabled]), [
+      ["replay", "Replay", true, true],
+      ["next", "Next", false, false],
+      ["home", "Home", true, true],
+    ]);
+    assert.deepEqual(model?.auxActions.map((action) => [action.action, action.label, action.visible, action.enabled]), [
+      ["share", "Share", false, false],
+      ["revive", "Revive", true, true],
+    ]);
+  });
+  it("does not create settlement presentation outside result phases", () => {
+    assert.equal(createBattleResultPresentationModel({ phase: BattlePhase.WaitingInput }), null);
+  });
+  it("keeps Battle theme presentation fallback values visual-only", () => {
+    const level = BUILT_IN_LEVEL_CATALOG[0];
+    const model = createBattleThemePresentationModel({
+      id: "spring-garden",
+      displayName: "Spring Garden",
+    }, level);
+
+    assert.equal(model.levelId, "level-001");
+    assert.equal(model.backgroundAssetKey, null);
+    assert.equal(model.frameAssetKey, null);
+    assert.equal(model.decorationAssetKey, null);
+    assert.deepEqual(model.assetBindings.map((binding) => [binding.slot, binding.spriteFrameKey, binding.fallbackColor, binding.required]), [
+      ["background", null, "#F4F6F2", false],
+      ["frame", null, "#B59E73", false],
+      ["decoration", null, "#B59E73", false],
+    ]);
+    assert.equal(model.placeholderBackgroundColor, "#F4F6F2");
+    assert.equal(model.placeholderFrameColor, "#B59E73");
+    assert.deepEqual(createBattleToolEntryPresentationModels(model).map((tool) => [tool.action, tool.iconAssetKey, tool.enabled, tool.featureGate]), [
+      ["removePoolBucket", "battle.tool.removePoolBucket", true, ""],
+      ["removeCarrierBucket", "battle.tool.removeCarrierBucket", true, ""],
+    ]);
   });
 
   it("reports fill and full badge state from bucket amount without changing rules", () => {

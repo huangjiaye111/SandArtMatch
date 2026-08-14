@@ -6,11 +6,13 @@ import {
   getLevelCatalogEntry,
   getLevelCatalogEntryByConfigLevelId,
 } from "../../domain/config/LevelCatalog";
-import { createBattleSimulationFromLevel } from "../../domain/config/LevelLoader";
+import { createBattleSimulationFromLevelWithOptions } from "../../domain/config/LevelLoader";
 import { DEFAULT_BATTLE_SIMULATION_CONFIG } from "../../domain/battle/BattleSimulationConfig";
 import type { BattleSimulation, BattleSimulationFrame } from "../../domain/battle/BattleSimulation";
 import type { BattleViewSnapshot } from "../../domain/battle/BattleState";
 import type { BucketState } from "../../domain/bucket/Bucket";
+import type { BattleToolAction } from "../../domain/battle/BattleToolRules";
+import { isTargetedBattleToolAction, type TargetedBattleToolAction } from "../../domain/battle/BattleToolRules";
 import type { BattleView } from "./BattleViewContract";
 import { BucketPoolView } from "./BucketPoolView";
 import { ConveyorView } from "./ConveyorView";
@@ -25,10 +27,13 @@ import { createBucketExitPresentationTasks, createBucketMergePresentationTasks }
 import { createGravityTimelinePlan, groupGravityMovesByIteration, type GravityIterationStep } from "./GravityMotionModel";
 import { getSandCanvasPaletteEntry } from "./SandCanvasModel";
 import { BATTLE_PRESENTATION_CONFIG } from "./BattlePresentationConfig";
-import { getRuntimeGameNavigator, getRuntimeGameSession } from "../navigation/RuntimeGameServices";
-import { createThemeRuntime } from "../../theme/ThemeRuntime";
-import type { ThemeConfig } from "../../theme/ThemeTypes";
+import { createBattleThemePresentationModel, type BattleThemePresentationModel } from "./BattleThemePresentationModel";
+import { getRuntimeAdService, getRuntimeFeatureFlags, getRuntimeGameNavigator, getRuntimeGameSession } from "../navigation/RuntimeGameServices";
+import { AD_TYPE_EXTRA_CARRIER } from "../../services/AdServiceTypes";
+import { ThemeCatalog } from "../../theme/ThemeCatalog";
 import type { LevelCatalogEntry } from "../../domain/config/LevelCatalog";
+import { ArtworkCatalog } from "../../artwork/ArtworkCatalog";
+import { createBattleToolEntryPresentationModels } from "./BattleThemePresentationModel";
 
 const { ccclass, property } = _decorator;
 
@@ -89,6 +94,9 @@ export class BattleRoot extends Component implements BattleView {
   private runtimeDisposed = false;
   private tutorialHint: Node | null = null;
   private tutorialStage = 0;
+  private reviveInProgress = false;
+  private reviveUsed = false;
+  private activeTargetTool: TargetedBattleToolAction | null = null;
 
   @property
   public debugBucketEntryFlowEnabled = false;
@@ -105,10 +113,9 @@ export class BattleRoot extends Component implements BattleView {
     const session = getRuntimeGameSession();
     session.selectedLevelId = entry.levelId;
     session.currentLevelId = entry.levelId;
-    session.currentThemeId = entry.themeId;
     this.applyRuntimeTheme(entry);
     this.levelText = getDisplayLevelText(entry);
-    this.simulation = createBattleSimulationFromLevel(getBuiltInLevelConfigByCatalogLevelId(entry.levelId));
+    this.simulation = this.createRuntimeSimulation(entry.levelId);
     this.bindChildActions();
     this.initialize(this.simulation.getSnapshot());
     this.setLevelText(this.levelText);
@@ -126,6 +133,7 @@ export class BattleRoot extends Component implements BattleView {
   protected onDisable(): void { this.cancelFeedback(); }
 
   public initialize(snapshot: BattleViewSnapshot): void {
+    this.clearTargetToolMode();
     this.clear();
     this.renderSandGrid(snapshot.grid);
     this.renderConveyor(snapshot.conveyor, snapshot.buckets);
@@ -192,6 +200,7 @@ export class BattleRoot extends Component implements BattleView {
     this.sandGridView?.cancelFeedback();
     this.conveyorView?.cancelFeedback();
     this.bucketPoolView?.cancelFeedback();
+    this.clearTargetToolMode();
   }
 
   public showFeedback(message: string): void {
@@ -199,11 +208,20 @@ export class BattleRoot extends Component implements BattleView {
   }
 
   public showWin(canStartNext = false): void {
-    this.toolbarView?.showWin(canStartNext);
+    const entry = this.resolveCatalogEntry();
+    const artwork = ArtworkCatalog.getById(entry.artworkId);
+    this.toolbarView?.showWin(canStartNext, {
+      rewardAmount: entry.order * 25,
+      artworkTitle: artwork?.displayName ?? entry.artworkId,
+      canShare: true,
+    });
   }
 
   public showLose(reason?: string): void {
-    this.toolbarView?.showLose(reason);
+    this.toolbarView?.showLose(reason, {
+      staminaCost: 1,
+      canRevive: !this.reviveUsed,
+    });
   }
 
   public hideResult(): void {
@@ -236,6 +254,110 @@ export class BattleRoot extends Component implements BattleView {
       slotIndex: result.slotIndex,
     };
     this.playBucketFlights([event], this.captureBucketFlightStarts([event]));
+  }
+
+  public onToolTapped(action: BattleToolAction): void {
+    const simulation = this.simulation;
+    if (simulation === null) {
+      return;
+    }
+    if (isTargetedBattleToolAction(action)) {
+      this.beginTargetTool(action);
+      return;
+    }
+    const result = simulation.useTool(action);
+    if (!result.accepted) {
+      const message = formatToolRejectReason(result.rejectReason ?? "battleNotWaitingInput");
+      this.showFeedback(message);
+      this.toolbarView?.playFeedback([{ type: "invalidClick", message }]);
+      return;
+    }
+
+    this.renderBucketPool(result.snapshot.buckets);
+    this.setInputEnabled(result.snapshot.phase === BattlePhase.WaitingInput);
+    const message = action === "hint"
+      ? formatHintFeedback(result.hint?.recommendedBucketInstanceId ?? null)
+      : "桶子已重新排列!";
+    if (action === "hint") {
+      this.bucketPoolView?.playHintToolFeedback(result.hint?.recommendedBucketInstanceId ?? null, message);
+    } else {
+      this.bucketPoolView?.playShuffleToolFeedback(result.shuffledBucketInstanceIds, message);
+    }
+    this.showFeedback(message);
+    this.toolbarView?.playFeedback([{ type: "toolUsed", action, message }]);
+  }
+
+  public onTargetBucketTapped(action: TargetedBattleToolAction, bucketInstanceId: string): void {
+    if (this.activeTargetTool !== action) {
+      return;
+    }
+    const simulation = this.simulation;
+    if (simulation === null) {
+      return;
+    }
+    const result = simulation.useTargetedTool(action, bucketInstanceId);
+    if (!result.accepted) {
+      const message = formatToolRejectReason(result.rejectReason ?? "battleNotWaitingInput");
+      this.showFeedback(message);
+      this.bucketPoolView?.playShuffleToolFeedback([], message);
+      return;
+    }
+    this.activeTargetTool = null;
+    this.bucketPoolView?.setPoolToolTargetEnabled(false);
+    this.conveyorView?.setCarrierToolTargetEnabled(false);
+    this.renderSandGrid(result.snapshot.grid);
+    this.renderConveyor(result.snapshot.conveyor, result.snapshot.buckets);
+    this.renderBucketPool(result.snapshot.buckets);
+    this.setInputEnabled(result.snapshot.phase === BattlePhase.WaitingInput);
+    const message = action === "removePoolBucket" ? "已消除下方桶子" : "已清除传送带桶子";
+    this.showFeedback(message);
+    this.bucketPoolView?.playShuffleToolFeedback([], message);
+  }
+
+  private beginTargetTool(action: TargetedBattleToolAction): void {
+    this.activeTargetTool = action;
+    this.bucketPoolView?.setPoolToolTargetEnabled(action === "removePoolBucket");
+    this.conveyorView?.setCarrierToolTargetEnabled(action === "removeCarrierBucket");
+    const message = action === "removePoolBucket"
+      ? "请选择下方需要消除的桶子!"
+      : "请选择传送带上需要消除的桶子!";
+    this.showFeedback(message);
+    this.bucketPoolView?.playShuffleToolFeedback([], message);
+  }
+
+  private clearTargetToolMode(): void {
+    this.activeTargetTool = null;
+    this.bucketPoolView?.setPoolToolTargetEnabled(false);
+    this.conveyorView?.setCarrierToolTargetEnabled(false);
+  }
+
+  public async onReviveTapped(): Promise<void> {
+    if (this.navigationStarted || this.reviveInProgress || this.reviveUsed) {
+      return;
+    }
+    const simulation = this.simulation;
+    if (simulation === null || simulation.getSnapshot().phase !== BattlePhase.Failed) {
+      this.showFeedback("Revive unavailable");
+      return;
+    }
+
+    this.reviveInProgress = true;
+    this.showFeedback("Checking revive...");
+    try {
+      const result = await getRuntimeAdService().showRewardedAd(AD_TYPE_EXTRA_CARRIER);
+      if (!result.success) {
+        this.showFeedback(formatReviveRejectReason(result.reason));
+        return;
+      }
+      this.reviveUsed = true;
+      this.cancelFeedback();
+      this.simulation = this.createRuntimeSimulation(this.currentCatalogLevelId ?? this.resolveCatalogEntry().levelId);
+      this.hideResult();
+      this.initialize(this.simulation.getSnapshot());
+      this.showFeedback("Revived with extra slot");
+    } finally {
+      this.reviveInProgress = false;
+    }
   }
 
   public onRestartTapped(): void {
@@ -324,11 +446,15 @@ export class BattleRoot extends Component implements BattleView {
   private bindChildActions(): void {
     const actions = {
       selectBucket: (bucketInstanceId: string) => this.onBucketTapped(bucketInstanceId),
+      useTool: (action: BattleToolAction) => this.onToolTapped(action),
+      targetBucketWithTool: (action: TargetedBattleToolAction, bucketInstanceId: string) => this.onTargetBucketTapped(action, bucketInstanceId),
+      revive: () => { void this.onReviveTapped(); },
       restart: () => this.onRestartTapped(),
       next: () => this.onNextTapped(),
       home: () => this.onHomeTapped(),
     };
     this.bucketPoolView?.setActions(actions);
+    this.conveyorView?.setCarrierToolTargetHandler((bucketInstanceId) => this.onTargetBucketTapped("removeCarrierBucket", bucketInstanceId));
     this.toolbarView?.setActions(actions);
   }
 
@@ -390,6 +516,12 @@ export class BattleRoot extends Component implements BattleView {
     return getLevelCatalogEntryByConfigLevelId(this.levelId);
   }
 
+  private createRuntimeSimulation(catalogLevelId: string): BattleSimulation {
+    return createBattleSimulationFromLevelWithOptions(getBuiltInLevelConfigByCatalogLevelId(catalogLevelId), {
+      featureFlags: getRuntimeFeatureFlags(),
+    });
+  }
+
   private saveVictoryOnce(): { readonly canStartNext: boolean } {
     if (this.victorySaved) {
       const entry = this.currentCatalogLevelId === null ? null : getLevelCatalogEntry(this.currentCatalogLevelId);
@@ -449,22 +581,23 @@ export class BattleRoot extends Component implements BattleView {
     const bucketPoolArea = designContent?.getChildByName("BucketPoolArea") ?? null;
 
     designContent?.setSiblingIndex(5);
-    sandArea?.setPosition(0, 236, 0);
-    conveyorArea?.setPosition(0, -118, 0);
-    bucketPoolArea?.setPosition(0, -410, 0);
+    sandArea?.setPosition(0, 264, 0);
+    conveyorArea?.setPosition(0, -72, 0);
+    bucketPoolArea?.setPosition(0, -372, 0);
 
-    sandArea?.getComponent(UITransform)?.setContentSize(680, 620);
-    conveyorArea?.getComponent(UITransform)?.setContentSize(676, 132);
-    bucketPoolArea?.getComponent(UITransform)?.setContentSize(704, 322);
+    sandArea?.getComponent(UITransform)?.setContentSize(680, 584);
+    conveyorArea?.getComponent(UITransform)?.setContentSize(676, 144);
+    bucketPoolArea?.getComponent(UITransform)?.setContentSize(704, 348);
   }
 
   private applyRuntimeTheme(entry: LevelCatalogEntry): void {
-    const snapshot = createThemeRuntime(getRuntimeGameSession()).getCurrentSnapshot();
-    this.ensureBattleWorkshopBackdrop(snapshot.theme);
-    console.log(`[BattleRoot] level=${entry.levelId} theme=${snapshot.theme.id} (${snapshot.theme.displayName})`);
+    const themeModel = createBattleThemePresentationModel(ThemeCatalog.get(entry.themeId), entry);
+    this.ensureBattleWorkshopBackdrop(themeModel);
+    this.toolbarView?.setBattleToolEntries(createBattleToolEntryPresentationModels(themeModel));
+    console.log(`[BattleRoot] level=${entry.levelId} theme=${themeModel.themeId} (${themeModel.themeDisplayName})`);
   }
 
-  private ensureBattleWorkshopBackdrop(theme: ThemeConfig): void {
+  private ensureBattleWorkshopBackdrop(theme: BattleThemePresentationModel): void {
     let backdrop = this.node.getChildByName("WorkshopRuntimeBackdrop");
     if (backdrop === null) {
       backdrop = new Node("WorkshopRuntimeBackdrop");
@@ -917,6 +1050,37 @@ function quadraticBezier(start: number, control: number, end: number, progress: 
   const inverse = 1 - progress;
   return inverse * inverse * start + 2 * inverse * progress * control + progress * progress * end;
 }
+
+function formatHintFeedback(bucketInstanceId: string | null): string {
+  return bucketInstanceId === null ? "当前没有可选择的桶子" : "请选择下方需要消除的桶子!";
+}
+
+function formatToolRejectReason(reason: string): string {
+  if (reason === "battleEnded") {
+    return "战斗已经结束";
+  }
+  if (reason === "processing") {
+    return "请等待沙子结算完成";
+  }
+  if (reason === "disposed") {
+    return "战斗已关闭";
+  }
+  if (reason === "toolNotFound") {
+    return "道具暂不可用";
+  }
+  return "道具暂不可用";
+}
+
+function formatReviveRejectReason(reason?: string): string {
+  if (reason === "closed") {
+    return "Revive cancelled";
+  }
+  if (reason === "mock_failure") {
+    return "Revive ad failed";
+  }
+  return "Revive unavailable";
+}
+
 function drawParticle(node: Node, colorId: number): void {
   const graphics = node.getComponent(Graphics);
   if (graphics === null) return;
@@ -944,12 +1108,12 @@ function drawTutorialBackground(graphics: Graphics | null): void {
   graphics.stroke();
 }
 
-function drawWorkshopRuntimeBackdrop(graphics: Graphics | null, theme: ThemeConfig): void {
+function drawWorkshopRuntimeBackdrop(graphics: Graphics | null, theme: BattleThemePresentationModel): void {
   if (graphics === null) {
     return;
   }
-  const background = colorFromHex(theme.placeholderBackgroundColor ?? "#F4F6F2", 220);
-  const frame = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 120);
+  const background = colorFromHex(theme.placeholderBackgroundColor, 220);
+  const frame = colorFromHex(theme.placeholderFrameColor, 120);
   graphics.clear();
   graphics.fillColor = background;
   graphics.rect(-WORKSHOP_BG_SIZE.width / 2, -WORKSHOP_BG_SIZE.height / 2, WORKSHOP_BG_SIZE.width, WORKSHOP_BG_SIZE.height);
@@ -966,7 +1130,7 @@ function drawWorkshopRuntimeBackdrop(graphics: Graphics | null, theme: ThemeConf
   graphics.fillColor = new Color(255, 255, 255, 86);
   graphics.roundRect(-360, -212, 720, 166, 28);
   graphics.fill();
-  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#82918A", 86);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor, 86);
   graphics.lineWidth = 2;
   graphics.roundRect(-360, -212, 720, 166, 28);
   graphics.stroke();
@@ -974,12 +1138,12 @@ function drawWorkshopRuntimeBackdrop(graphics: Graphics | null, theme: ThemeConf
   graphics.fillColor = new Color(255, 255, 255, 108);
   graphics.roundRect(-360, -590, 720, 382, 32);
   graphics.fill();
-  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 92);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor, 92);
   graphics.lineWidth = 3;
   graphics.roundRect(-360, -590, 720, 382, 32);
   graphics.stroke();
 
-  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor ?? "#B59E73", 42);
+  graphics.strokeColor = colorFromHex(theme.placeholderFrameColor, 42);
   graphics.lineWidth = 2;
   for (let y = -540; y <= -260; y += 58) {
     graphics.moveTo(-326, y);

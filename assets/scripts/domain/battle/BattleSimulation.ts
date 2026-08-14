@@ -1,6 +1,7 @@
-import { BattlePhase, type BattleViewSnapshot } from "./BattleState";
+import { BattlePhase, type BattleToolActionResult, type BattleViewSnapshot } from "./BattleState";
 import { detectDeadlock, type DeadlockDetectionResult } from "./Outcome";
 import { DEFAULT_BATTLE_SIMULATION_CONFIG, type BattleSimulationConfig } from "./BattleSimulationConfig";
+import { type BattleToolAction, type TargetedBattleToolAction, resolveBattleHint, shuffleAvailableBucketOrder } from "./BattleToolRules";
 import { type AbsorbedSandCell } from "./Settlement";
 import { Bucket, createBucket, type BucketState } from "../bucket/Bucket";
 import { getBucketPoolSelectionReason } from "../bucket/BucketPool";
@@ -66,6 +67,7 @@ export class BattleSimulation {
   private mergeSystem: MergeSystem;
   private bucketsById = new Map<string, Bucket>();
   private bucketOrder: string[] = [];
+  private bucketPoolSlotById = new Map<string, number>();
   private pendingSelections: string[] = [];
   private phaseValue: BattlePhase = BattlePhase.WaitingInput;
   private tickIndex = 0;
@@ -87,7 +89,7 @@ export class BattleSimulation {
     if (options.conveyor !== undefined) {
       this.restoreBucketsAndConveyor(
         [
-          ...this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot()),
+          ...this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId)),
           ...options.conveyor.bucketsSnapshot()
             .filter((bucket) => !this.bucketsById.has(bucket.instanceId))
             .map((bucket) => bucket.snapshot()),
@@ -126,6 +128,111 @@ export class BattleSimulation {
     const slotIndex = this.conveyor.count + reservedSlots;
     this.pendingSelections.push(bucketInstanceId);
     return Object.freeze({ accepted: true, bucketInstanceId, slotIndex });
+  }
+
+  public useTool(action: BattleToolAction): BattleToolActionResult {
+    const before = this.getSnapshot();
+    if (action !== "hint" && action !== "shuffle") {
+      return this.freezeToolActionResult({
+        accepted: false,
+        action,
+        beforePhase: before.phase,
+        afterPhase: before.phase,
+        snapshot: before,
+        hint: null,
+        shuffledBucketInstanceIds: [],
+        rejectReason: "toolNotFound",
+      });
+    }
+    const rejectedReason = this.validateToolUse();
+    if (rejectedReason !== null) {
+      return this.freezeToolActionResult({
+        accepted: false,
+        action,
+        beforePhase: before.phase,
+        afterPhase: before.phase,
+        snapshot: before,
+        hint: null,
+        shuffledBucketInstanceIds: [],
+        rejectReason: rejectedReason,
+      });
+    }
+
+    if (action === "hint") {
+      return this.freezeToolActionResult({
+        accepted: true,
+        action,
+        beforePhase: before.phase,
+        afterPhase: before.phase,
+        hint: resolveBattleHint({ grid: before.grid, buckets: before.buckets }),
+        shuffledBucketInstanceIds: [],
+        snapshot: before,
+      });
+    }
+
+    const nextOrder = shuffleAvailableBucketOrder({ buckets: before.buckets, random: this.random });
+    this.bucketOrder = [...nextOrder];
+    this.assignPoolSlotsFromOrder(this.bucketOrder);
+    this.revision += 1;
+    const after = this.getSnapshot();
+    return this.freezeToolActionResult({
+      accepted: true,
+      action,
+      beforePhase: before.phase,
+      afterPhase: after.phase,
+      hint: null,
+      shuffledBucketInstanceIds: nextOrder,
+      snapshot: after,
+    });
+  }
+
+  public useTargetedTool(action: TargetedBattleToolAction, bucketInstanceId: string): BattleToolActionResult {
+    const before = this.getSnapshot();
+    const rejectedReason = this.validateToolUse();
+    if (rejectedReason !== null) {
+      return this.freezeToolActionResult({
+        accepted: false,
+        action,
+        beforePhase: before.phase,
+        afterPhase: before.phase,
+        snapshot: before,
+        hint: null,
+        shuffledBucketInstanceIds: [],
+        rejectReason: rejectedReason,
+      });
+    }
+
+    const bucket = this.bucketsById.get(bucketInstanceId);
+    if (bucket === undefined) {
+      return this.rejectTargetedTool(action, before, "bucketNotFound");
+    }
+
+    if (action === "removePoolBucket") {
+      if (bucket.status !== "available") {
+        return this.rejectTargetedTool(action, before, "bucketNotSelectable");
+      }
+      this.clearMatchingSandForRemovedBucket(bucket);
+      this.removeBucketFromBattle(bucketInstanceId);
+    } else {
+      if (bucket.status !== "inConveyor" || this.conveyor.findBucket(bucketInstanceId) === null) {
+        return this.rejectTargetedTool(action, before, "bucketNotSelectable");
+      }
+      this.clearMatchingSandForRemovedBucket(bucket);
+      this.conveyor.removeBucketByInstanceId(bucketInstanceId);
+      this.removeBucketFromBattle(bucketInstanceId);
+    }
+
+    this.revision += 1;
+    const after = this.getSnapshot();
+    return this.freezeToolActionResult({
+      accepted: true,
+      action,
+      beforePhase: before.phase,
+      afterPhase: after.phase,
+      hint: null,
+      shuffledBucketInstanceIds: [],
+      snapshot: after,
+    });
   }
 
   public tick(): BattleSimulationFrame {
@@ -171,7 +278,7 @@ export class BattleSimulation {
       phase: this.phaseValue,
       grid: this.grid.snapshot(),
       conveyor: this.conveyor.snapshot(),
-      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
+      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId))),
       random: this.random.snapshot(),
       actionIndex: this.revision,
     });
@@ -193,6 +300,40 @@ export class BattleSimulation {
   public dispose(): void {
     this.pendingSelections = [];
     this.disposed = true;
+  }
+
+  private validateToolUse(): BattleToolActionResult["rejectReason"] | null {
+    if (this.disposed) {
+      return "battleNotWaitingInput";
+    }
+    if (this.phaseValue === BattlePhase.Won || this.phaseValue === BattlePhase.Failed) {
+      return "battleAlreadyWon";
+    }
+    if (this.phaseValue !== BattlePhase.WaitingInput || this.pendingSelections.length > 0 || this.hasWork() || hasPendingGravity(this.grid)) {
+      return "battleNotWaitingInput";
+    }
+    return null;
+  }
+
+  private rejectTargetedTool(
+    action: TargetedBattleToolAction,
+    snapshot: BattleViewSnapshot,
+    rejectReason: NonNullable<BattleToolActionResult["rejectReason"]>,
+  ): BattleToolActionResult {
+    return this.freezeToolActionResult({
+      accepted: false,
+      action,
+      beforePhase: snapshot.phase,
+      afterPhase: snapshot.phase,
+      snapshot,
+      hint: null,
+      shuffledBucketInstanceIds: [],
+      rejectReason,
+    });
+  }
+
+  private freezeToolActionResult(result: BattleToolActionResult): BattleToolActionResult {
+    return freezeBattleToolActionResult(result);
   }
 
   private applyOnePendingSelection(): { readonly bucketInstanceId: string; readonly slotIndex: number } | null {
@@ -333,7 +474,7 @@ export class BattleSimulation {
       phase: this.phaseValue,
       grid: this.grid.snapshot(),
       conveyor: this.conveyor.snapshot(),
-      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
+      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId))),
       random: this.random.snapshot(),
       mergeSequence: this.mergeSystem.snapshotSequence(),
       tickIndex: this.tickIndex,
@@ -354,7 +495,16 @@ export class BattleSimulation {
   private restoreBucketsAndConveyor(bucketStates: readonly BucketState[], conveyorState: ConveyorState): void {
     const bucketsById = new Map<string, Bucket>();
     const bucketOrder = bucketStates.map((state) => state.instanceId);
+    const bucketPoolSlotById = new Map<string, number>();
     const conveyor = createConveyor(conveyorState.maxSlots);
+    for (let index = 0; index < bucketStates.length; index += 1) {
+      const state = bucketStates[index];
+      const poolSlotIndex = state.poolSlotIndex ?? (state.status === "available" ? index : undefined);
+      if (poolSlotIndex !== undefined) {
+        validatePoolSlotIndex(poolSlotIndex, state.instanceId);
+        bucketPoolSlotById.set(state.instanceId, poolSlotIndex);
+      }
+    }
     for (const instanceId of conveyorState.slots) {
       if (instanceId === null) {
         continue;
@@ -378,6 +528,7 @@ export class BattleSimulation {
     }
     this.bucketsById = bucketsById;
     this.bucketOrder = bucketOrder;
+    this.bucketPoolSlotById = bucketPoolSlotById;
     this.conveyor = conveyor;
   }
 
@@ -387,6 +538,32 @@ export class BattleSimulation {
     }
     this.bucketsById.set(bucket.instanceId, bucket);
     this.bucketOrder.push(bucket.instanceId);
+    this.bucketPoolSlotById.set(bucket.instanceId, this.bucketOrder.length - 1);
+  }
+
+  private removeBucketFromBattle(bucketInstanceId: string): void {
+    this.bucketsById.delete(bucketInstanceId);
+    this.bucketOrder = this.bucketOrder.filter((instanceId) => instanceId !== bucketInstanceId);
+    this.bucketPoolSlotById.delete(bucketInstanceId);
+    this.pendingSelections = this.pendingSelections.filter((instanceId) => instanceId !== bucketInstanceId);
+  }
+
+  private clearMatchingSandForRemovedBucket(bucket: Bucket): number {
+    const absorbCount = Math.max(0, bucket.remainingCapacity);
+    if (absorbCount === 0) {
+      return 0;
+    }
+    let cleared = 0;
+    for (let y = 0; y < this.grid.height && cleared < absorbCount; y += 1) {
+      for (let x = 0; x < this.grid.width && cleared < absorbCount; x += 1) {
+        if (this.grid.get(x, y) !== bucket.colorId) {
+          continue;
+        }
+        this.grid.clear(x, y);
+        cleared += 1;
+      }
+    }
+    return cleared;
   }
 
   private requireBucket(instanceId: string): Bucket {
@@ -395,6 +572,25 @@ export class BattleSimulation {
       throw new Error(`Bucket is not in battle simulation: ${instanceId}.`);
     }
     return bucket;
+  }
+
+  private snapshotBucket(instanceId: string): BucketState {
+    const snapshot = this.requireBucket(instanceId).snapshot();
+    const poolSlotIndex = this.bucketPoolSlotById.get(instanceId);
+    if (poolSlotIndex === undefined) {
+      return snapshot;
+    }
+    return Object.freeze({
+      ...snapshot,
+      poolSlotIndex,
+    });
+  }
+
+  private assignPoolSlotsFromOrder(order: readonly string[]): void {
+    this.bucketPoolSlotById.clear();
+    for (let index = 0; index < order.length; index += 1) {
+      this.bucketPoolSlotById.set(order[index], index);
+    }
   }
 }
 
@@ -413,6 +609,19 @@ export function createBattleSimulation(options: BattleSimulationOptions): Battle
   return new BattleSimulation(options);
 }
 
+function freezeBattleToolActionResult(result: BattleToolActionResult): BattleToolActionResult {
+  return Object.freeze({
+    accepted: result.accepted,
+    action: result.action,
+    beforePhase: result.beforePhase,
+    afterPhase: result.afterPhase,
+    snapshot: result.snapshot,
+    hint: result.hint,
+    shuffledBucketInstanceIds: Object.freeze([...result.shuffledBucketInstanceIds]),
+    rejectReason: result.rejectReason,
+  });
+}
+
 function validateOptions(options: BattleSimulationOptions): void {
   if (!(options.grid instanceof SandGrid)) {
     throw new TypeError("BattleSimulation requires a SandGrid.");
@@ -422,5 +631,11 @@ function validateOptions(options: BattleSimulationOptions): void {
   }
   if (!(options.random instanceof SeededRandom)) {
     throw new TypeError("BattleSimulation requires a SeededRandom.");
+  }
+}
+
+function validatePoolSlotIndex(poolSlotIndex: number, instanceId: string): void {
+  if (!Number.isSafeInteger(poolSlotIndex) || poolSlotIndex < 0) {
+    throw new RangeError(`Battle simulation bucket poolSlotIndex must be a non-negative safe integer: ${instanceId}.`);
   }
 }

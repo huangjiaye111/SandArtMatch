@@ -6,6 +6,7 @@ import {
 } from "../../domain/battle/BattleState";
 import type { BattleStateMachine } from "../../domain/battle/BattleStateMachine";
 import type { BattlePresentationEvent, BattleView } from "./BattleViewContract";
+import type { BattleToolAction } from "../../domain/battle/BattleToolRules";
 
 export class BattlePresenter {
   private inputEnabled = true;
@@ -58,6 +59,25 @@ export class BattlePresenter {
 
   public refresh(): void {
     this.sync(this.machine.snapshot());
+  }
+
+  public useTool(action: BattleToolAction): void {
+    if (!this.inputEnabled || this.isHandlingAction || !this.machine.canAcceptInput()) {
+      this.view.showFeedback("Input locked");
+      return;
+    }
+
+    const result = this.machine.useTool(action);
+    this.sync(result.snapshot, result.rejectReason);
+    if (!result.accepted) {
+      void this.view.playFeedback([{ type: "invalidClick", message: formatFailureReason(result.rejectReason ?? "Input locked") }]);
+      return;
+    }
+    const message = result.action === "hint"
+      ? formatHintMessage(result.hint?.recommendedBucketInstanceId ?? null)
+      : "Buckets shuffled";
+    this.view.showFeedback(message);
+    void this.view.playFeedback([{ type: "toolUsed", action: result.action, message }]);
   }
 
   public restart(): void {
@@ -235,9 +255,15 @@ function formatFailureReason(reason: string): string {
       return "Bucket not column front";
     case "conveyorFull":
       return "Conveyor full";
+    case "toolNotFound":
+      return "Tool unavailable";
     case "settlementError":
       return "Settlement error";
     default:
       return reason;
   }
+}
+
+function formatHintMessage(bucketInstanceId: string | null): string {
+  return bucketInstanceId === null ? "No move hinted" : `Hint: ${bucketInstanceId}`;
 }

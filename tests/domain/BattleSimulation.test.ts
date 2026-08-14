@@ -4,6 +4,7 @@ import { BattlePhase } from "../../assets/scripts/domain/battle/BattleState.ts";
 import { createBattleSimulation, type BattleSimulationFrame } from "../../assets/scripts/domain/battle/BattleSimulation.ts";
 import { createBattleStateMachine } from "../../assets/scripts/domain/battle/BattleStateMachine.ts";
 import { createBucket } from "../../assets/scripts/domain/bucket/Bucket.ts";
+import { createBucketPoolState } from "../../assets/scripts/domain/bucket/BucketPool.ts";
 import { createConveyor } from "../../assets/scripts/domain/bucket/Conveyor.ts";
 import { getBuiltInTestLevel } from "../../assets/scripts/domain/config/TestLevels.ts";
 import { createSeededRandom } from "../../assets/scripts/domain/core/Random.ts";
@@ -68,6 +69,110 @@ describe("BattleSimulation", () => {
 
     assert.equal(simulation.enqueueBucketSelection("c0-second").reason, "bucketNotColumnFront");
     assert.equal(simulation.enqueueBucketSelection("c0-front").accepted, true);
+  });
+
+  it("resolves hint without mutating the simulation snapshot", () => {
+    const simulation = createBattleSimulation({
+      grid: SandGrid.fromConfig({ width: 2, height: 1, cells: [[1, 2]] }),
+      buckets: [
+        createBucket("blue", { colorId: 2, capacity: 4 }),
+        createBucket("red", { colorId: 1, capacity: 4 }),
+      ],
+      random: createSeededRandom("simulation-hint"),
+    });
+    const before = simulation.getSnapshot();
+
+    const result = simulation.useTool("hint");
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.hint?.recommendedBucketInstanceId, "blue");
+    assert.deepEqual(simulation.getSnapshot(), before);
+  });
+
+  it("shuffles available bucket order deterministically through the simulation", () => {
+    const createSimulation = () => createBattleSimulation({
+      grid: SandGrid.empty(1, 1),
+      buckets: [
+        createBucket("bucket-a", { colorId: 1, capacity: 4 }),
+        createBucket("bucket-b", { colorId: 2, capacity: 4 }),
+        createBucket("bucket-c", { colorId: 3, capacity: 4 }),
+        createBucket("bucket-d", { colorId: 4, capacity: 4 }),
+      ],
+      random: createSeededRandom("simulation-shuffle"),
+    });
+    const left = createSimulation();
+    const right = createSimulation();
+
+    const leftResult = left.useTool("shuffle");
+    const rightResult = right.useTool("shuffle");
+
+    assert.equal(leftResult.accepted, true);
+    assert.deepEqual(leftResult.shuffledBucketInstanceIds, rightResult.shuffledBucketInstanceIds);
+    assert.deepEqual(left.getSnapshot(), right.getSnapshot());
+    assert.notDeepEqual(left.getSnapshot().buckets.map((bucket) => bucket.instanceId), ["bucket-a", "bucket-b", "bucket-c", "bucket-d"]);
+    assert.deepEqual(createBucketPoolState(left.getSnapshot().buckets).selectableBucketIds, left.getSnapshot().buckets.slice(0, 4).map((bucket) => bucket.instanceId));
+    assert.equal(left.getSnapshot().actionIndex, 1);
+  });
+
+  it("rejects tools while a bucket selection is pending", () => {
+    const simulation = createBattleSimulation({
+      grid: SandGrid.empty(1, 1),
+      buckets: [createBucket("red", { colorId: 1, capacity: 4 })],
+      random: createSeededRandom("simulation-tool-pending"),
+    });
+
+    simulation.enqueueBucketSelection("red");
+    const result = simulation.useTool("shuffle");
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.rejectReason, "battleNotWaitingInput");
+    assert.deepEqual(simulation.getSnapshot().buckets.map((bucket) => bucket.instanceId), ["red"]);
+  });
+
+  it("removes a selected lower bucket through the targeted pool tool", () => {
+    const simulation = createBattleSimulation({
+      grid: SandGrid.fromConfig({ width: 4, height: 1, cells: [[2, 2, 2, 3]] }),
+      buckets: [
+        createBucket("front", { colorId: 1, capacity: 4 }),
+        createBucket("second", { colorId: 2, capacity: 2 }),
+      ],
+      random: createSeededRandom("remove-pool-tool"),
+    });
+
+    const result = simulation.useTargetedTool("removePoolBucket", "second");
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.snapshot.buckets.map((bucket) => bucket.instanceId), ["front"]);
+    assert.deepEqual(result.snapshot.grid.cells, [null, null, 2, 3]);
+    assert.equal(result.snapshot.actionIndex, 1);
+  });
+
+  it("removes a selected carrier bucket through the targeted carrier tool", () => {
+    const conveyor = createConveyor();
+    conveyor.addBucket(createBucket("carrier-a", { colorId: 1, capacity: 4 }, { currentAmount: 1 }));
+    conveyor.addBucket(createBucket("carrier-b", { colorId: 3, capacity: 4 }));
+    const simulation = createBattleSimulation({
+      grid: SandGrid.fromConfig({
+        width: 3,
+        height: 3,
+        cells: [
+          [2, 2, 2],
+          [2, 1, 2],
+          [2, 2, 2],
+        ],
+      }),
+      buckets: [createBucket("pool-a", { colorId: 3, capacity: 4 })],
+      conveyor,
+      random: createSeededRandom("remove-carrier-tool"),
+    });
+
+    const result = simulation.useTargetedTool("removeCarrierBucket", "carrier-a");
+
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.snapshot.conveyor.slots, ["carrier-b", null, null, null, null, null]);
+    assert.equal(result.snapshot.buckets.find((bucket) => bucket.instanceId === "carrier-a"), undefined);
+    assert.deepEqual(result.snapshot.grid.cells, [2, 2, 2, 2, null, 2, 2, 2, 2]);
+    assert.equal(result.snapshot.actionIndex, 1);
   });
 
   it("caps each bucket absorption per tick", () => {
@@ -188,6 +293,44 @@ describe("BattleSimulation", () => {
     assert.equal(frame.mergeResults.length, 1);
     assert.deepEqual(frame.mergeResults[0].participantBuckets.map((bucket) => bucket.instanceId), ["red-a", "red-b", "red-c"]);
     assert.equal(frame.battleState.conveyor.slots[0], frame.mergeResults[0].mergedBucket?.instanceId);
+  });
+
+  it("keeps runtime bucket pool columns stable after a merge reorders conveyor buckets", () => {
+    const conveyor = createConveyor();
+    conveyor.addBucket(createBucket("red-a", { colorId: 1, capacity: 3 }));
+    conveyor.addBucket(createBucket("red-b", { colorId: 1, capacity: 3 }));
+    const simulation = createBattleSimulation({
+      grid: SandGrid.empty(1, 1),
+      buckets: [
+        createBucket("c0-front", { colorId: 2, capacity: 3 }),
+        createBucket("c1-front", { colorId: 3, capacity: 3 }),
+        createBucket("c2-merge", { colorId: 1, capacity: 3 }),
+        createBucket("c3-front", { colorId: 4, capacity: 3 }),
+        createBucket("c0-second", { colorId: 2, capacity: 3 }),
+        createBucket("c1-second", { colorId: 3, capacity: 3 }),
+        createBucket("c2-second", { colorId: 1, capacity: 3 }),
+        createBucket("c3-second", { colorId: 4, capacity: 3 }),
+      ],
+      conveyor,
+      random: createSeededRandom("simulation-merge-keeps-pool-columns"),
+    });
+
+    assert.equal(simulation.enqueueBucketSelection("c2-merge").accepted, true);
+    const frame = simulation.tick();
+    const pool = createBucketPoolState(frame.battleState.buckets);
+    const columns = new Map(pool.buckets.map((stored) => [
+      stored.bucketId,
+      { columnIndex: stored.columnIndex, visibleDepthIndex: stored.visibleDepthIndex },
+    ]));
+
+    assert.equal(frame.mergeResults.length, 1);
+    assert.deepEqual(columns.get("c0-front"), { columnIndex: 0, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c1-front"), { columnIndex: 1, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c2-second"), { columnIndex: 2, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c3-front"), { columnIndex: 3, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c0-second"), { columnIndex: 0, visibleDepthIndex: 1 });
+    assert.deepEqual(columns.get("c1-second"), { columnIndex: 1, visibleDepthIndex: 1 });
+    assert.deepEqual(columns.get("c3-second"), { columnIndex: 3, visibleDepthIndex: 1 });
   });
 
   it("merges full matching buckets before applying completed-bucket exits", () => {

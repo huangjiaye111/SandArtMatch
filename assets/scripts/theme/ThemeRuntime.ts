@@ -1,4 +1,4 @@
-import type { LevelCatalogEntry, LevelCatalog as LevelCatalogData } from "../domain/config/LevelCatalog";
+﻿import type { LevelCatalogEntry, LevelCatalog as LevelCatalogData } from "../domain/config/LevelCatalog";
 import { BUILT_IN_LEVEL_CATALOG, LevelCatalog } from "../domain/config/LevelCatalog";
 import type { GameSession } from "../domain/navigation/GameNavigator";
 import { ThemeCatalog } from "./ThemeCatalog";
@@ -28,7 +28,6 @@ export class ThemeRuntime {
 
   public getCurrentSnapshot(): ThemeRuntimeSnapshot {
     const level = this.resolveCurrentLevel();
-    this.session.currentThemeId = level.themeId;
     return Object.freeze({
       level,
       theme: ThemeCatalog.get(level.themeId),
@@ -56,3 +55,5 @@ export function createThemeRuntime(
 ): ThemeRuntime {
   return new ThemeRuntime(session, catalog);
 }
+
+

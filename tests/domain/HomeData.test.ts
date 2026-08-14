@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+﻿import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { LevelCatalogEntry } from "../../assets/scripts/domain/config/LevelCatalog.ts";
 import { createProgressStore, MemoryProgressStorage } from "../../assets/scripts/domain/progress/ProgressStore.ts";
@@ -59,11 +59,46 @@ describe("HomeData", () => {
     assert.equal(data.selectLevel("level-002").canPlay, true);
   });
 
+  it("exposes gated Shop placeholder without blocking play", () => {
+    const result = createData().getViewData();
+
+    assert.equal(result.canPlay, true);
+    assert.deepEqual(result.placeholderEntries.map((entry) => [entry.action, entry.visible, entry.enabled, entry.featureGate]), [
+      ["shop", true, false, "shop-placeholder"],
+    ]);
+    assert.equal(result.placeholderEntries.every((entry) => entry.message.length > 0), true);
+  });
+
   it("reads stamina and coins from the resource store", () => {
     const result = createData(undefined, { stamina: 7, coins: 123 }).getViewData();
 
     assert.equal(result.currentStamina, 7);
     assert.equal(result.currentCoins, 123);
+    assert.deepEqual(result.acquireEntries.map((entry) => [entry.action, entry.valueText, entry.locked]), [
+      ["stamina", "7", false],
+      ["coins", "123", false],
+    ]);
+  });
+
+  it("marks empty acquire entries as locked with a reward hint", () => {
+    const result = createData(undefined, { stamina: 0, coins: 0 }).getViewData();
+
+    assert.deepEqual(result.acquireEntries, [
+      {
+        action: "stamina",
+        displayName: "Stamina",
+        valueText: "0",
+        locked: true,
+        rewardHint: "Watch to refill",
+      },
+      {
+        action: "coins",
+        displayName: "Coins",
+        valueText: "0",
+        locked: true,
+        rewardHint: "Claim coins",
+      },
+    ]);
   });
 
   it("sets canPlay false when every level is locked", () => {

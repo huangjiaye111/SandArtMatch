@@ -1,4 +1,4 @@
-import type { LevelCatalogEntry } from "../domain/config/LevelCatalog";
+﻿import type { LevelCatalogEntry } from "../domain/config/LevelCatalog";
 import type { ProgressStore } from "../domain/progress/ProgressStore";
 
 export type HomeLevelStatus = "locked" | "unlocked" | "completed";
@@ -14,9 +14,31 @@ export interface HomeLevelData {
 export interface HomeViewData {
   readonly currentStamina: number;
   readonly currentCoins: number;
+  readonly acquireEntries: readonly HomeAcquireEntryData[];
+  readonly placeholderEntries: readonly HomePlaceholderEntryData[];
   readonly levels: readonly HomeLevelData[];
   readonly selectedLevelId: string | null;
   readonly canPlay: boolean;
+}
+
+export type HomeAcquireEntryAction = "stamina" | "coins";
+export type HomePlaceholderEntryAction = "shop";
+
+export interface HomeAcquireEntryData {
+  readonly action: HomeAcquireEntryAction;
+  readonly displayName: string;
+  readonly valueText: string;
+  readonly locked: boolean;
+  readonly rewardHint: string;
+}
+
+export interface HomePlaceholderEntryData {
+  readonly action: HomePlaceholderEntryAction;
+  readonly displayName: string;
+  readonly visible: boolean;
+  readonly enabled: boolean;
+  readonly featureGate: string;
+  readonly message: string;
 }
 
 export interface HomeLevelCatalogRef {
@@ -43,6 +65,8 @@ export class HomeData {
 
   public getViewData(): HomeViewData {
     const selectedLevelId = this.getValidSelectedLevelId();
+    const currentStamina = this.resourceStore.getCurrentStamina();
+    const currentCoins = this.resourceStore.getCurrentCoins();
     const levels = this.getLevelEntries().map((entry) => {
       const status = this.getLevelStatus(entry.levelId);
       return Object.freeze({
@@ -56,8 +80,10 @@ export class HomeData {
     const selected = levels.find((level) => level.isCurrent) ?? null;
 
     return Object.freeze({
-      currentStamina: this.resourceStore.getCurrentStamina(),
-      currentCoins: this.resourceStore.getCurrentCoins(),
+      currentStamina,
+      currentCoins,
+      acquireEntries: createAcquireEntries(currentStamina, currentCoins),
+      placeholderEntries: createPlaceholderEntries(),
       levels: Object.freeze(levels),
       selectedLevelId,
       canPlay: selected !== null && selected.status !== "locked",
@@ -106,6 +132,38 @@ export class HomeData {
   }
 }
 
+function createPlaceholderEntries(): readonly HomePlaceholderEntryData[] {
+  return Object.freeze([
+    Object.freeze({
+      action: "shop" as const,
+      displayName: "Shop",
+      visible: true,
+      enabled: false,
+      featureGate: "shop-placeholder",
+      message: "Shop is not active yet",
+    }),
+  ]);
+}
+
 function formatLevelDisplayName(entry: LevelCatalogEntry): string {
   return `Level ${entry.displayNumber}`;
+}
+
+function createAcquireEntries(currentStamina: number, currentCoins: number): readonly HomeAcquireEntryData[] {
+  return Object.freeze([
+    Object.freeze({
+      action: "stamina",
+      displayName: "Stamina",
+      valueText: `${Math.max(0, currentStamina).toString()}`,
+      locked: currentStamina <= 0,
+      rewardHint: currentStamina <= 0 ? "Watch to refill" : "Ready to spend",
+    }),
+    Object.freeze({
+      action: "coins",
+      displayName: "Coins",
+      valueText: `${Math.max(0, currentCoins).toString()}`,
+      locked: currentCoins <= 0,
+      rewardHint: currentCoins <= 0 ? "Claim coins" : "Ready to spend",
+    }),
+  ]);
 }

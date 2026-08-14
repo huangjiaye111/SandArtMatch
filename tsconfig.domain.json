@@ -7,5 +7,5 @@
     "strict": true,
     "target": "ES2022"
   },
-  "include": ["assets/scripts/domain/**/*.ts", "tests/**/*.ts", "tests/**/*.d.ts"]
+  "include": ["assets/scripts/domain/**/*.ts", "assets/scripts/settings/**/*.ts", "assets/scripts/services/**/*.ts", "tests/**/*.ts", "tests/**/*.d.ts"]
 }

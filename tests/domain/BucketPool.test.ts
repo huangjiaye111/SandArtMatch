@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+﻿import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { BattlePhase } from "../../assets/scripts/domain/battle/BattleState.ts";
 import { createBattleStateMachine } from "../../assets/scripts/domain/battle/BattleStateMachine.ts";
@@ -68,6 +68,30 @@ describe("BucketPool", () => {
       bucket("c2-second", 3).snapshot(),
       bucket("c3-second", 4).snapshot(),
     ]), ["c0-front", "c1-front", "c2-front", "c3-front"]);
+  });
+
+
+  it("keeps visual bucket slots in their original columns after a front bucket leaves", () => {
+    const state = createBucketPoolState([
+      bucket("c0-front", 1, "inConveyor").snapshot(),
+      bucket("c1-front", 2).snapshot(),
+      bucket("c2-front", 3).snapshot(),
+      bucket("c3-front", 4).snapshot(),
+      bucket("c0-second", 1).snapshot(),
+      bucket("c1-second", 2).snapshot(),
+      bucket("c2-second", 3).snapshot(),
+      bucket("c3-second", 4).snapshot(),
+    ]);
+
+    assert.deepEqual(state.buckets.map((stored) => [stored.bucketId, stored.columnIndex, stored.visibleDepthIndex]), [
+      ["c0-second", 0, 0],
+      ["c1-front", 1, 0],
+      ["c2-front", 2, 0],
+      ["c3-front", 3, 0],
+      ["c1-second", 1, 1],
+      ["c2-second", 2, 1],
+      ["c3-second", 3, 1],
+    ]);
   });
 
   it("rejects deeper column buckets until the front bucket is removed", () => {

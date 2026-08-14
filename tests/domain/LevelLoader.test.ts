@@ -20,6 +20,7 @@ import {
   getBuiltInTestLevel,
   getShowcaseLevelMetrics,
 } from "../../assets/scripts/domain/config/TestLevels.ts";
+import { createFeatureFlags } from "../../assets/scripts/services/FeatureFlags.ts";
 
 function minimalRawLevel() {
   return {
@@ -95,6 +96,16 @@ describe("LevelLoader", () => {
 
     assert.equal(config.conveyorSlots, 13);
     assert.equal(loaded.conveyor.maxSlots, 13);
+  });
+
+  it("keeps default conveyor capacity unchanged unless the extra slot flag is active", () => {
+    const defaultLoaded = createLoadedLevel(minimalRawLevel());
+    const flaggedLoaded = createLoadedLevel(minimalRawLevel(), {
+      featureFlags: createFeatureFlags({ battleExtraCarrierSlot: true }),
+    });
+
+    assert.equal(defaultLoaded.conveyor.maxSlots, DEFAULT_LEVEL_CONVEYOR_SLOTS);
+    assert.equal(flaggedLoaded.conveyor.maxSlots, DEFAULT_LEVEL_CONVEYOR_SLOTS + 1);
   });
 
   it("loads a valid complete level into domain objects", () => {

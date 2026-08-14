@@ -1,4 +1,5 @@
 import type { BattleViewSnapshot, SettlementStep } from "../../domain/battle/BattleState";
+import type { BattleToolAction, TargetedBattleToolAction } from "../../domain/battle/BattleToolRules";
 import type { AbsorbAllocation, AbsorbedSandCell } from "../../domain/battle/Settlement";
 import type { BucketState } from "../../domain/bucket/Bucket";
 import type { ConveyorState } from "../../domain/bucket/Conveyor";
@@ -60,6 +61,11 @@ export type BattlePresentationEvent =
   | {
       readonly type: "deadlock";
       readonly message: string;
+    }
+  | {
+      readonly type: "toolUsed";
+      readonly action: BattleToolAction;
+      readonly message: string;
     };
 
 export interface AbsorptionPresentationEvent {
@@ -84,14 +90,28 @@ export interface BattleView {
   playFeedback(events: readonly BattlePresentationEvent[]): Promise<void>;
   cancelFeedback(): void;
   showFeedback(message: string): void;
-  showWin(canStartNext?: boolean): void;
-  showLose(reason?: string): void;
+  showWin(canStartNext?: boolean, presentation?: BattleWinPresentationOptions): void;
+  showLose(reason?: string, presentation?: BattleLosePresentationOptions): void;
   hideResult(): void;
   clear(): void;
 }
 
+export interface BattleWinPresentationOptions {
+  readonly rewardAmount?: number;
+  readonly artworkTitle?: string;
+  readonly canShare?: boolean;
+}
+
+export interface BattleLosePresentationOptions {
+  readonly staminaCost?: number;
+  readonly canRevive?: boolean;
+}
+
 export interface BattleUiActions {
   selectBucket(bucketInstanceId: string): void;
+  useTool(action: BattleToolAction): void;
+  targetBucketWithTool(action: TargetedBattleToolAction, bucketInstanceId: string): void;
+  revive(): void;
   restart(): void;
   next(): void;
   home(): void;

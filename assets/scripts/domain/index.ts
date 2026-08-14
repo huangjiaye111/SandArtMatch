@@ -8,6 +8,7 @@ export * from "./config/TestLevels";
 export * from "./config/LevelCatalog";
 export * from "./progress/GameProgress";
 export * from "./progress/ProgressStore";
+export * from "./progression/ProgressionService";
 export * from "./navigation/GameNavigator";
 export * from "./bucket/Bucket";
 export * from "./bucket/Conveyor";

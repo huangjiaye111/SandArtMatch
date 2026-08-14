@@ -26,7 +26,7 @@ export function cloneAndValidateBattleSnapshot(snapshot: BattleSnapshot): Battle
   validateSequence(snapshot.mergeSequence, "Merge sequence");
   validateActionIndex(snapshot.actionIndex);
 
-  const bucketStates = snapshot.buckets.map((bucketState) => Bucket.fromSnapshot(bucketState).snapshot());
+  const bucketStates = snapshot.buckets.map(cloneBucketState);
   validateBucketIds(bucketStates);
   const conveyor = cloneAndValidateConveyor(snapshot.conveyor, bucketStates);
 
@@ -38,6 +38,18 @@ export function cloneAndValidateBattleSnapshot(snapshot: BattleSnapshot): Battle
     random,
     mergeSequence: snapshot.mergeSequence,
     actionIndex: snapshot.actionIndex,
+  });
+}
+
+function cloneBucketState(bucketState: BucketState): BucketState {
+  const cloned = Bucket.fromSnapshot(bucketState).snapshot();
+  if (bucketState.poolSlotIndex === undefined) {
+    return cloned;
+  }
+  validatePoolSlotIndex(bucketState.poolSlotIndex, bucketState.instanceId);
+  return Object.freeze({
+    ...cloned,
+    poolSlotIndex: bucketState.poolSlotIndex,
   });
 }
 
@@ -126,6 +138,12 @@ function validateBucketIds(bucketStates: readonly BucketState[]): void {
       throw new Error(`Duplicate bucket in battle snapshot: ${state.instanceId}.`);
     }
     seen.add(state.instanceId);
+  }
+}
+
+function validatePoolSlotIndex(poolSlotIndex: number, instanceId: string): void {
+  if (!Number.isSafeInteger(poolSlotIndex) || poolSlotIndex < 0) {
+    throw new RangeError(`Battle snapshot bucket poolSlotIndex must be a non-negative safe integer: ${instanceId}.`);
   }
 }
 

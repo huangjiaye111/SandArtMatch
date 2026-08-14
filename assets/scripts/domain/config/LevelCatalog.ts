@@ -1,6 +1,8 @@
+﻿import { ArtworkCatalog } from "../../artwork/ArtworkCatalog";
+import { ThemeCatalog } from "../../theme/ThemeCatalog";
+import type { ThemeId } from "../../theme/ThemeTypes";
 import type { LevelConfig, RawLevelConfig } from "./LevelConfig";
 import { getBuiltInTestLevel, TEST_LEVELS } from "./TestLevels";
-import type { ThemeId } from "../../theme/ThemeTypes";
 
 export interface LevelCatalogEntry {
   readonly levelId: string;
@@ -22,7 +24,7 @@ export const BUILT_IN_LEVEL_CATALOG: LevelCatalog = Object.freeze([
     order: 1,
     configLevelId: 1,
     themeId: "spring-garden",
-    artworkId: "artwork-spring-garden-001",
+    artworkId: "spring-cat-001",
     initialUnlocked: true,
     nextLevelId: "level-002",
   }),
@@ -31,7 +33,7 @@ export const BUILT_IN_LEVEL_CATALOG: LevelCatalog = Object.freeze([
     order: 2,
     configLevelId: 1,
     themeId: "beach-holiday",
-    artworkId: "artwork-beach-holiday-001",
+    artworkId: "beach-cat-001",
     initialUnlocked: false,
     nextLevelId: "level-003",
   }),
@@ -40,7 +42,7 @@ export const BUILT_IN_LEVEL_CATALOG: LevelCatalog = Object.freeze([
     order: 3,
     configLevelId: 1,
     themeId: "cozy-home",
-    artworkId: "artwork-cozy-home-001",
+    artworkId: "cozy-cat-001",
     initialUnlocked: false,
     nextLevelId: "level-004",
   }),
@@ -49,7 +51,7 @@ export const BUILT_IN_LEVEL_CATALOG: LevelCatalog = Object.freeze([
     order: 4,
     configLevelId: 1,
     themeId: "cloud-dream",
-    artworkId: "artwork-cloud-dream-001",
+    artworkId: "cloud-cat-001",
     initialUnlocked: false,
     nextLevelId: null,
   }),
@@ -103,7 +105,6 @@ export function assertCatalogIntegrity(catalog: LevelCatalog = BUILT_IN_LEVEL_CA
   }
   const levelIds = new Set<string>();
   const orders = new Set<number>();
-  const artworkIds = new Set<string>();
   for (const entry of catalog) {
     if (levelIds.has(entry.levelId)) {
       throw new Error(`Duplicate catalog levelId: ${entry.levelId}.`);
@@ -114,18 +115,24 @@ export function assertCatalogIntegrity(catalog: LevelCatalog = BUILT_IN_LEVEL_CA
     if (orders.has(entry.order)) {
       throw new Error(`Duplicate catalog order: ${entry.order}.`);
     }
-    if (artworkIds.has(entry.artworkId)) {
-      throw new Error(`Duplicate catalog artworkId: ${entry.artworkId}.`);
-    }
     if (!Number.isSafeInteger(entry.order) || entry.order <= 0) {
       throw new Error(`Catalog level ${entry.levelId} has invalid order ${entry.order}.`);
     }
     if (entry.displayNumber !== entry.order) {
       throw new Error(`Catalog level ${entry.levelId} has mismatched displayNumber ${entry.displayNumber}.`);
     }
+    if (!ThemeCatalog.has(entry.themeId)) {
+      throw new Error(`Catalog level ${entry.levelId} has unknown themeId ${entry.themeId}.`);
+    }
+    const artwork = ArtworkCatalog.getById(entry.artworkId);
+    if (artwork === null) {
+      throw new Error(`Catalog level ${entry.levelId} has unknown artworkId ${entry.artworkId}.`);
+    }
+    if (artwork.themeId !== entry.themeId) {
+      throw new Error(`Catalog level ${entry.levelId} themeId ${entry.themeId} does not match artwork themeId ${artwork.themeId}.`);
+    }
     levelIds.add(entry.levelId);
     orders.add(entry.order);
-    artworkIds.add(entry.artworkId);
     getBuiltInTestLevel(entry.configLevelId);
   }
   for (const entry of catalog) {

@@ -6,6 +6,7 @@ import type { MergeResult } from "../bucket/Merge";
 import type { GravityMoveTrace, GravitySettlementResult } from "../core/Gravity";
 import type { RandomSnapshot } from "../core/Random";
 import type { SandGridSnapshot } from "../core/SandGrid";
+import type { BattleHintResult, BattleToolAction } from "./BattleToolRules";
 
 export const BattlePhase = Object.freeze({
   WaitingInput: "WaitingInput",
@@ -29,6 +30,7 @@ export type BattleRejectReason =
   | "bucketNotSelectable"
   | "bucketNotColumnFront"
   | "conveyorFull"
+  | "toolNotFound"
   | "settlementError";
 
 export interface BattleViewSnapshot {
@@ -126,4 +128,15 @@ export interface BattleActionResult {
   readonly snapshot: BattleViewSnapshot;
   readonly rejectReason?: BattleRejectReason;
   readonly errorMessage?: string;
+}
+
+export interface BattleToolActionResult {
+  readonly accepted: boolean;
+  readonly action: BattleToolAction;
+  readonly beforePhase: BattlePhase;
+  readonly afterPhase: BattlePhase;
+  readonly snapshot: BattleViewSnapshot;
+  readonly hint: BattleHintResult | null;
+  readonly shuffledBucketInstanceIds: readonly string[];
+  readonly rejectReason?: BattleRejectReason;
 }

@@ -1,9 +1,11 @@
-import { describe, it } from "node:test";
+﻿import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createCollectionProgressStore, MemoryCollectionStorage } from "../../assets/scripts/collection/CollectionProgressStore.ts";
 import { BUILT_IN_LEVEL_CATALOG } from "../../assets/scripts/domain/config/LevelCatalog.ts";
 import { GameNavigator, type GameSceneName, type SceneDriver } from "../../assets/scripts/domain/navigation/GameNavigator.ts";
-import { completeLevelInProgress, createDefaultGameProgress, selectLevelInProgress } from "../../assets/scripts/domain/progress/GameProgress.ts";
+import { createDefaultGameProgress, selectLevelInProgress } from "../../assets/scripts/domain/progress/GameProgress.ts";
 import { createProgressStore, MemoryProgressStorage } from "../../assets/scripts/domain/progress/ProgressStore.ts";
+import { createProgressionService } from "../../assets/scripts/domain/progression/ProgressionService.ts";
 import { ThemeCatalog } from "../../assets/scripts/theme/ThemeCatalog.ts";
 import { createThemeRuntime } from "../../assets/scripts/theme/ThemeRuntime.ts";
 
@@ -22,10 +24,17 @@ class RecordingSceneDriver implements SceneDriver {
 function createNavigator() {
   const storage = new MemoryProgressStorage();
   const store = createProgressStore(storage);
+  const collectionStore = createCollectionProgressStore(new MemoryCollectionStorage());
   const driver = new RecordingSceneDriver();
-  const session = { selectedLevelId: null, currentLevelId: null, currentThemeId: null };
-  const navigator = new GameNavigator(driver, store, session);
-  return { driver, navigator, session, store };
+  const session = { selectedLevelId: null, currentLevelId: null };
+  const navigator = new GameNavigator(
+    driver,
+    store,
+    session,
+    BUILT_IN_LEVEL_CATALOG,
+    createProgressionService(store, collectionStore, BUILT_IN_LEVEL_CATALOG),
+  );
+  return { collectionStore, driver, navigator, session, store };
 }
 
 describe("GameNavigator", () => {
@@ -49,7 +58,7 @@ describe("GameNavigator", () => {
   });
 
   it("unlocks and starts the next catalog level after victory", async () => {
-    const { navigator, session } = createNavigator();
+    const { collectionStore, navigator, session } = createNavigator();
     await navigator.startLevel("level-001");
 
     const victory = navigator.completeCurrentLevelVictory();
@@ -60,7 +69,9 @@ describe("GameNavigator", () => {
     assert.equal(next.accepted, true);
     assert.equal(next.levelId, "level-002");
     assert.equal(session.currentLevelId, "level-002");
-    assert.equal(session.currentThemeId, "beach-holiday");
+    assert.equal(navigator.getCurrentTheme()?.id, "beach-holiday");
+    assert.equal(collectionStore.isArtworkCollected("spring-cat-001"), true);
+    assert.equal(collectionStore.isArtworkUnlocked("beach-cat-001"), true);
   });
 
   it("replays without changing progress", async () => {
@@ -98,7 +109,6 @@ describe("GameNavigator", () => {
 
     store.save({ ...store.load(), lastSelectedLevelId: "missing-level" });
     session.currentLevelId = null;
-    session.currentThemeId = null;
     await navigator.continueOrStartFirstLevel();
     assert.equal(session.currentLevelId, "level-001");
   });
@@ -139,9 +149,29 @@ describe("GameNavigator", () => {
 
     assert.equal(session.selectedLevelId, "level-003");
     assert.equal(session.currentLevelId, "level-003");
-    assert.equal(session.currentThemeId, "cozy-home");
     assert.equal(navigator.getCurrentTheme()?.id, "cozy-home");
     assert.equal(createThemeRuntime(session).getCurrentTheme().id, "cozy-home");
+    assert.equal("currentThemeId" in session, false);
+  });
+
+  it("applies the current Battle theme to presentation targets without mutating session state", async () => {
+    const { navigator, session, store } = createNavigator();
+    store.unlockLevel("level-004");
+    await navigator.startLevel("level-004");
+    const before = { ...session };
+    const applied: Array<[string, string]> = [];
+
+    const snapshot = createThemeRuntime(session).applyTheme({
+      applyThemeConfig(theme, level): void {
+        applied.push([theme.id, level.levelId]);
+      },
+    });
+
+    assert.deepEqual(applied, [["cloud-dream", "level-004"]]);
+    assert.equal(snapshot.theme.id, "cloud-dream");
+    assert.equal(snapshot.level.levelId, "level-004");
+    assert.deepEqual(session, before);
+    assert.equal("currentThemeId" in session, false);
   });
 
   it("falls back safely for an invalid theme id and warns", () => {

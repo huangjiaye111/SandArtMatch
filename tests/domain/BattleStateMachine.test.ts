@@ -4,7 +4,7 @@ import { createBattleStateMachine } from "../../assets/scripts/domain/battle/Bat
 import { BattlePhase, type BattleActionResult, type BattleStageEvent } from "../../assets/scripts/domain/battle/BattleState.ts";
 import { createBucket, type BucketState } from "../../assets/scripts/domain/bucket/Bucket.ts";
 import { createConveyor } from "../../assets/scripts/domain/bucket/Conveyor.ts";
-import { getBucketPoolSelectionReason } from "../../assets/scripts/domain/bucket/BucketPool.ts";
+import { createBucketPoolState, getBucketPoolSelectionReason } from "../../assets/scripts/domain/bucket/BucketPool.ts";
 import { createSeededRandom } from "../../assets/scripts/domain/core/Random.ts";
 import { SandGrid } from "../../assets/scripts/domain/core/SandGrid.ts";
 
@@ -232,6 +232,44 @@ describe("BattleStateMachine", () => {
     ]);
     assert.equal(bucketState(result, "merge-1-1-red-a_red-b_red-c").amount, 1);
     assert.deepEqual(result.snapshot.conveyor.slots, ["merge-1-1-red-a_red-b_red-c", null, null, null, null, null]);
+  });
+
+  it("keeps bucket pool columns stable when a merge inserts a bucket before the selected source slot", () => {
+    const conveyor = createConveyor();
+    conveyor.addBucket(bucket("red-a", 1, 3));
+    conveyor.addBucket(bucket("red-b", 1, 3));
+    const machine = createBattleStateMachine({
+      grid: SandGrid.empty(1, 1),
+      buckets: [
+        bucket("c0-front", 2),
+        bucket("c1-front", 3),
+        bucket("c2-merge", 1),
+        bucket("c3-front", 4),
+        bucket("c0-second", 2),
+        bucket("c1-second", 3),
+        bucket("c2-second", 1),
+        bucket("c3-second", 4),
+      ],
+      conveyor,
+      random: createSeededRandom("merge-keeps-pool-columns"),
+    });
+
+    const result = machine.selectBucket("c2-merge");
+    const pool = createBucketPoolState(result.snapshot.buckets);
+    const columns = new Map(pool.buckets.map((stored) => [
+      stored.bucketId,
+      { columnIndex: stored.columnIndex, visibleDepthIndex: stored.visibleDepthIndex },
+    ]));
+
+    assert.equal(result.accepted, true);
+    assert.equal(resultEvent(result, "mergeResolved").result.merged, true);
+    assert.deepEqual(columns.get("c0-front"), { columnIndex: 0, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c1-front"), { columnIndex: 1, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c2-second"), { columnIndex: 2, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c3-front"), { columnIndex: 3, visibleDepthIndex: 0 });
+    assert.deepEqual(columns.get("c0-second"), { columnIndex: 0, visibleDepthIndex: 1 });
+    assert.deepEqual(columns.get("c1-second"), { columnIndex: 1, visibleDepthIndex: 1 });
+    assert.deepEqual(columns.get("c3-second"), { columnIndex: 3, visibleDepthIndex: 1 });
   });
 
   it("continues normally when no merge candidate exists", () => {
@@ -500,6 +538,68 @@ describe("BattleStateMachine", () => {
 
     assert.deepEqual(firstResults, secondResults);
     assert.deepEqual(first.snapshot(), second.snapshot());
+  });
+
+  it("routes hint through the state machine as a pure deterministic query", () => {
+    const machine = createBattleStateMachine({
+      grid: basicGrid(),
+      buckets: [bucket("red", 1, 3), bucket("blue", 2, 3)],
+      random: createSeededRandom("hint"),
+    });
+    const before = machine.snapshot();
+
+    const result = machine.useTool("hint");
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.action, "hint");
+    assert.equal(result.hint?.recommendedBucketInstanceId, "red");
+    assert.equal(result.hint?.reason, "matchesExposedSand");
+    assert.deepEqual(result.snapshot, before);
+    assert.deepEqual(machine.snapshot(), before);
+  });
+
+  it("routes shuffle through the state machine with seeded deterministic bucket-pool order", () => {
+    const create = () => createBattleStateMachine({
+      grid: SandGrid.empty(1, 1),
+      buckets: [
+        bucket("a", 1),
+        bucket("b", 2),
+        bucket("c", 3),
+        bucket("d", 4),
+        bucket("e", 5),
+      ],
+      random: createSeededRandom("shuffle-seed"),
+    });
+    const first = create();
+    const second = create();
+
+    const firstResult = first.useTool("shuffle");
+    const secondResult = second.useTool("shuffle");
+
+    assert.equal(firstResult.accepted, true);
+    assert.equal(firstResult.action, "shuffle");
+    assert.equal(firstResult.snapshot.actionIndex, 1);
+    assert.deepEqual(firstResult, secondResult);
+    assert.notDeepEqual(firstResult.snapshot.buckets.map((stored) => stored.instanceId), ["a", "b", "c", "d", "e"]);
+    assert.deepEqual(createBucketPoolState(firstResult.snapshot.buckets).selectableBucketIds, firstResult.snapshot.buckets.slice(0, 4).map((stored) => stored.instanceId));
+    assert.deepEqual(firstResult.snapshot.conveyor.slots, [null, null, null, null, null, null]);
+  });
+
+  it("rejects tools outside WaitingInput without changing battle state", () => {
+    const machine = createBattleStateMachine({
+      grid: basicGrid(),
+      buckets: [bucket("red", 1)],
+      random: createSeededRandom("tool-busy"),
+    });
+    (machine as unknown as { phaseValue: BattlePhase }).phaseValue = BattlePhase.AbsorbResolve;
+    const before = machine.snapshot();
+
+    const result = machine.useTool("shuffle");
+
+    assert.equal(result.accepted, false);
+    assert.equal(result.rejectReason, "battleNotWaitingInput");
+    assert.deepEqual(result.snapshot, before);
+    assert.deepEqual(machine.snapshot(), before);
   });
 
   it("does not depend on Cocos APIs", () => {

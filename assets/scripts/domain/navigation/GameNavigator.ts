@@ -1,14 +1,14 @@
-import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, LevelCatalog, type LevelCatalog as LevelCatalogData, type LevelCatalogEntry } from "../config/LevelCatalog";
-import type { ThemeConfig, ThemeId } from "../../theme/ThemeTypes";
+﻿import { BUILT_IN_LEVEL_CATALOG, getFirstLevelEntry, getLevelCatalogEntry, LevelCatalog, type LevelCatalog as LevelCatalogData, type LevelCatalogEntry } from "../config/LevelCatalog";
+import type { ThemeConfig } from "../../theme/ThemeTypes";
 import { ThemeCatalog } from "../../theme/ThemeCatalog";
 import {
-  completeLevelInProgress,
   getContinueLevelId,
   isLevelUnlocked,
   selectLevelInProgress,
   type GameProgress,
 } from "../progress/GameProgress";
 import type { ProgressStore } from "../progress/ProgressStore";
+import { ProgressionService, type ProgressionResult } from "../progression/ProgressionService";
 
 export type GameSceneName = "Home" | "Battle";
 
@@ -19,7 +19,6 @@ export interface SceneDriver {
 export interface GameSession {
   selectedLevelId: string | null;
   currentLevelId: string | null;
-  currentThemeId: ThemeId | null;
 }
 
 export interface NavigationResult {
@@ -29,16 +28,13 @@ export interface NavigationResult {
   readonly reason?: string;
 }
 
-export interface VictoryProgressResult {
-  readonly progress: GameProgress;
-  readonly nextLevelId: string | null;
-  readonly canStartNext: boolean;
-}
+export type VictoryProgressResult = ProgressionResult;
 
 export class GameNavigator {
   private navigationInFlight = false;
   private readonly driver: SceneDriver;
   private readonly progressStore: ProgressStore;
+  private readonly progressionService: ProgressionService;
   private readonly session: GameSession;
   private readonly catalog: LevelCatalogData;
 
@@ -47,11 +43,13 @@ export class GameNavigator {
     progressStore: ProgressStore,
     session: GameSession,
     catalog: LevelCatalogData = BUILT_IN_LEVEL_CATALOG,
+    progressionService: ProgressionService | null = null,
   ) {
     this.driver = driver;
     this.progressStore = progressStore;
     this.session = session;
     this.catalog = catalog;
+    this.progressionService = progressionService ?? new ProgressionService(progressStore, createNoopCollectionProgressStore(), catalog);
   }
 
   public getCurrentLevelId(): string | null {
@@ -121,21 +119,13 @@ export class GameNavigator {
     if (currentLevelId === null) {
       throw new Error("Cannot complete victory without a current level.");
     }
-    const progress = completeLevelInProgress(this.progressStore.load(), currentLevelId, this.catalog);
-    this.progressStore.save(progress);
-    const nextLevelId = LevelCatalog.getNextLevel(currentLevelId, this.catalog)?.levelId ?? null;
-    return Object.freeze({
-      progress,
-      nextLevelId,
-      canStartNext: nextLevelId !== null && isLevelUnlocked(progress, nextLevelId, this.catalog),
-    });
+    return this.progressionService.completeLevel(currentLevelId);
   }
 
   public resetProgress(): void {
     this.progressStore.reset();
     this.session.selectedLevelId = null;
     this.session.currentLevelId = null;
-    this.session.currentThemeId = null;
   }
 
   private async navigate(sceneName: GameSceneName, levelId: string | null): Promise<NavigationResult> {
@@ -165,6 +155,22 @@ export class GameNavigator {
     const level = getLevelCatalogEntry(levelId, this.catalog);
     this.session.selectedLevelId = level.levelId;
     this.session.currentLevelId = level.levelId;
-    this.session.currentThemeId = level.themeId;
   }
+}
+
+function createNoopCollectionProgressStore() {
+  return {
+    load: () => Object.freeze({ schemaVersion: 1, unlockedArtworkIds: Object.freeze([]), collectedArtworkIds: Object.freeze([]) }),
+    save: () => undefined,
+    reset: () => undefined,
+    isArtworkUnlocked: () => false,
+    isArtworkCollected: () => false,
+    unlockArtwork: () => Object.freeze({ schemaVersion: 1, unlockedArtworkIds: Object.freeze([]), collectedArtworkIds: Object.freeze([]) }),
+    collectArtwork: () => Object.freeze({ schemaVersion: 1, unlockedArtworkIds: Object.freeze([]), collectedArtworkIds: Object.freeze([]) }),
+    getCollectedCount: () => 0,
+    getCollectedCountByTheme: () => 0,
+    getUnlockedCountByTheme: () => 0,
+    getThemeProgress: (themeId: string) => Object.freeze({ themeId, collected: 0, total: 0, percent: 0 }),
+    getTotalProgress: () => Object.freeze({ collected: 0, total: 0, percent: 0 }),
+  };
 }

@@ -3,9 +3,11 @@ import {
   type BattleActionResult,
   type BattleRejectReason,
   type BattleStageEvent,
+  type BattleToolActionResult,
   type SettlementStep,
   type BattleViewSnapshot,
 } from "./BattleState";
+import { resolveBattleHint, shuffleAvailableBucketOrder, type BattleToolAction } from "./BattleToolRules";
 import { cloneAndValidateBattleSnapshot, type BattleSnapshot } from "./BattleSnapshot";
 import {
   scheduleAbsorption,
@@ -45,6 +47,7 @@ export class BattleStateMachine {
   private readonly gravityOptions: GravitySettleOptions;
   private bucketsById: Map<string, Bucket>;
   private bucketOrder: string[];
+  private bucketPoolSlotById: Map<string, number>;
   private actionIndex: number;
   private isProcessing: boolean;
   private readonly initialSnapshot: BattleInternalSnapshot;
@@ -61,6 +64,7 @@ export class BattleStateMachine {
     this.gravityOptions = { ...(options.gravityOptions ?? {}) };
     this.bucketsById = new Map<string, Bucket>();
     this.bucketOrder = [];
+    this.bucketPoolSlotById = new Map<string, number>();
     this.actionIndex = 0;
     this.isProcessing = false;
 
@@ -167,12 +171,57 @@ export class BattleStateMachine {
     });
   }
 
+  public useTool(action: BattleToolAction): BattleToolActionResult {
+    validateToolAction(action);
+
+    const beforePhase = this.phaseValue;
+    const rejection = this.validateToolUse();
+    if (rejection !== null) {
+      return this.freezeToolActionResult({
+        accepted: false,
+        action,
+        beforePhase,
+        afterPhase: this.phaseValue,
+        snapshot: this.snapshot(),
+        hint: null,
+        shuffledBucketInstanceIds: Object.freeze([]),
+        rejectReason: rejection,
+      });
+    }
+
+    if (action === "hint") {
+      return this.freezeToolActionResult({
+        accepted: true,
+        action,
+        beforePhase,
+        afterPhase: this.phaseValue,
+        snapshot: this.snapshot(),
+        hint: resolveBattleHint({ grid: this.grid.snapshot(), buckets: this.snapshot().buckets }),
+        shuffledBucketInstanceIds: Object.freeze([]),
+      });
+    }
+
+    const nextOrder = shuffleAvailableBucketOrder({ buckets: this.snapshot().buckets, random: this.random });
+    this.bucketOrder = [...nextOrder];
+    this.assignPoolSlotsFromOrder(this.bucketOrder);
+    this.actionIndex += 1;
+    return this.freezeToolActionResult({
+      accepted: true,
+      action,
+      beforePhase,
+      afterPhase: this.phaseValue,
+      snapshot: this.snapshot(),
+      hint: null,
+      shuffledBucketInstanceIds: nextOrder,
+    });
+  }
+
   public snapshot(): BattleViewSnapshot {
     return Object.freeze({
       phase: this.phaseValue,
       grid: this.grid.snapshot(),
       conveyor: this.conveyor.snapshot(),
-      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
+      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId))),
       random: this.random.snapshot(),
       actionIndex: this.actionIndex,
     });
@@ -211,6 +260,16 @@ export class BattleStateMachine {
       return "conveyorFull";
     }
 
+    return null;
+  }
+
+  private validateToolUse(): BattleRejectReason | null {
+    if (this.phaseValue === BattlePhase.Won) {
+      return "battleAlreadyWon";
+    }
+    if (this.isProcessing || this.phaseValue !== BattlePhase.WaitingInput) {
+      return "battleNotWaitingInput";
+    }
     return null;
   }
 
@@ -419,7 +478,7 @@ export class BattleStateMachine {
       phase: this.phaseValue,
       grid: this.grid.snapshot(),
       conveyor: this.conveyor.snapshot(),
-      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot())),
+      buckets: Object.freeze(this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId))),
       random: this.random.snapshot(),
       mergeSequence: this.mergeSystem.snapshotSequence(),
       actionIndex: this.actionIndex,
@@ -439,6 +498,7 @@ export class BattleStateMachine {
     this.actionIndex = validatedSnapshot.actionIndex;
     this.bucketsById = nextBucketsAndConveyor.bucketsById;
     this.bucketOrder = nextBucketsAndConveyor.bucketOrder;
+    this.bucketPoolSlotById = nextBucketsAndConveyor.bucketPoolSlotById;
     this.conveyor = nextBucketsAndConveyor.conveyor;
   }
 
@@ -446,22 +506,35 @@ export class BattleStateMachine {
     const nextState = this.buildBucketsAndConveyor(bucketStates, conveyorState);
     this.bucketsById = nextState.bucketsById;
     this.bucketOrder = nextState.bucketOrder;
+    this.bucketPoolSlotById = nextState.bucketPoolSlotById;
     this.conveyor = nextState.conveyor;
   }
 
   private buildBucketsAndConveyor(
     bucketStates: readonly BucketState[],
     conveyorState: ConveyorState,
-  ): { readonly bucketsById: Map<string, Bucket>; readonly bucketOrder: string[]; readonly conveyor: ConveyorSystem } {
+  ): {
+    readonly bucketsById: Map<string, Bucket>;
+    readonly bucketOrder: string[];
+    readonly bucketPoolSlotById: Map<string, number>;
+    readonly conveyor: ConveyorSystem;
+  } {
     const nextBucketsById = new Map<string, Bucket>();
     const nextBucketOrder: string[] = [];
+    const nextBucketPoolSlotById = new Map<string, number>();
     const nextConveyor = createConveyor(conveyorState.maxSlots);
 
-    for (const state of bucketStates) {
+    for (let index = 0; index < bucketStates.length; index += 1) {
+      const state = bucketStates[index];
       if (nextBucketsById.has(state.instanceId)) {
         throw new Error(`Duplicate bucket in battle snapshot: ${state.instanceId}.`);
       }
       nextBucketOrder.push(state.instanceId);
+      const poolSlotIndex = state.poolSlotIndex ?? (state.status === "available" ? index : undefined);
+      if (poolSlotIndex !== undefined) {
+        validatePoolSlotIndex(poolSlotIndex, state.instanceId);
+        nextBucketPoolSlotById.set(state.instanceId, poolSlotIndex);
+      }
     }
 
     for (const instanceId of conveyorState.slots) {
@@ -493,6 +566,7 @@ export class BattleStateMachine {
     return Object.freeze({
       bucketsById: nextBucketsById,
       bucketOrder: nextBucketOrder,
+      bucketPoolSlotById: nextBucketPoolSlotById,
       conveyor: nextConveyor,
     });
   }
@@ -508,7 +582,7 @@ export class BattleStateMachine {
 
     const conveyorState = conveyor.snapshot();
     const allStates = [
-      ...this.bucketOrder.map((instanceId) => this.requireBucket(instanceId).snapshot()),
+      ...this.bucketOrder.map((instanceId) => this.snapshotBucket(instanceId)),
       ...conveyor.bucketsSnapshot()
         .filter((bucket) => !this.bucketsById.has(bucket.instanceId))
         .map((bucket) => bucket.snapshot()),
@@ -522,6 +596,7 @@ export class BattleStateMachine {
     }
     this.bucketsById.set(bucket.instanceId, bucket);
     this.bucketOrder.push(bucket.instanceId);
+    this.bucketPoolSlotById.set(bucket.instanceId, this.bucketOrder.length - 1);
   }
 
   private requireBucket(instanceId: string): Bucket {
@@ -530,6 +605,25 @@ export class BattleStateMachine {
       throw new Error(`Bucket is not in battle state: ${instanceId}.`);
     }
     return bucket;
+  }
+
+  private snapshotBucket(instanceId: string): BucketState {
+    const snapshot = this.requireBucket(instanceId).snapshot();
+    const poolSlotIndex = this.bucketPoolSlotById.get(instanceId);
+    if (poolSlotIndex === undefined) {
+      return snapshot;
+    }
+    return Object.freeze({
+      ...snapshot,
+      poolSlotIndex,
+    });
+  }
+
+  private assignPoolSlotsFromOrder(order: readonly string[]): void {
+    this.bucketPoolSlotById.clear();
+    for (let index = 0; index < order.length; index += 1) {
+      this.bucketPoolSlotById.set(order[index], index);
+    }
   }
 
   private freezeActionResult(result: BattleActionResult): BattleActionResult {
@@ -544,6 +638,19 @@ export class BattleStateMachine {
       snapshot: result.snapshot,
       rejectReason: result.rejectReason,
       errorMessage: result.errorMessage,
+    });
+  }
+
+  private freezeToolActionResult(result: BattleToolActionResult): BattleToolActionResult {
+    return Object.freeze({
+      accepted: result.accepted,
+      action: result.action,
+      beforePhase: result.beforePhase,
+      afterPhase: result.afterPhase,
+      snapshot: result.snapshot,
+      hint: result.hint,
+      shuffledBucketInstanceIds: Object.freeze([...result.shuffledBucketInstanceIds]),
+      rejectReason: result.rejectReason,
     });
   }
 
@@ -620,9 +727,21 @@ function validateOptions(options: BattleStateMachineOptions): void {
   }
 }
 
+function validatePoolSlotIndex(poolSlotIndex: number, instanceId: string): void {
+  if (!Number.isSafeInteger(poolSlotIndex) || poolSlotIndex < 0) {
+    throw new RangeError(`Battle bucket poolSlotIndex must be a non-negative safe integer: ${instanceId}.`);
+  }
+}
+
 function validateBucketInstanceId(bucketInstanceId: string): void {
   if (typeof bucketInstanceId !== "string" || bucketInstanceId.length === 0) {
     throw new TypeError("Bucket instanceId must be a non-empty string.");
+  }
+}
+
+function validateToolAction(action: BattleToolAction): void {
+  if (action !== "hint" && action !== "shuffle") {
+    throw new TypeError("Battle tool action must be hint or shuffle.");
   }
 }
 

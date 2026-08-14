@@ -142,6 +142,16 @@ After programmer setup, artists may request replacement assets for:
 
 Programmers perform the actual import, SpriteFrame configuration, binding, and validation.
 
+## Theme Asset Binding Contract
+
+Battle theme replacement assets are described by `BattleThemePresentationModel.assetBindings`.
+
+- `background`: optional SpriteFrame key from `ThemeConfig.battleBackgroundKey`; runtime falls back to `placeholderBackgroundColor`.
+- `frame`: optional SpriteFrame key from `ThemeConfig.battleFrameKey`; runtime falls back to `placeholderFrameColor`.
+- `decoration`: optional SpriteFrame key from `ThemeConfig.battleDecorationKey`; runtime falls back to `placeholderFrameColor`.
+
+All three bindings are non-blocking. If a SpriteFrame is missing or not wired yet, Battle must still start and render the runtime fallback workshop backdrop. Manual Cocos validation for this step: open each catalog level, confirm the theme id logged by `BattleRoot`, confirm no missing SpriteFrame blocks startup, and confirm the sand artwork remains runtime-rendered inside the sand area rather than baked into theme art.
+
 ## Protected References
 
 Do not manually break or rename without programmer migration:

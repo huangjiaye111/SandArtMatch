@@ -1,6 +1,7 @@
-import { _decorator, Button, Color, Component, Label, Node, Sprite, UITransform } from "cc";
-import type { HomeData, HomeLevelData, HomeViewData } from "./HomeData";
+﻿import { _decorator, Button, Color, Component, Label, Node, Sprite, UITransform } from "cc";
+import type { HomeAcquireEntryAction, HomeAcquireEntryData, HomeData, HomeLevelData, HomePlaceholderEntryAction, HomeViewData } from "./HomeData";
 import { HomeLevelNode } from "./HomeLevelNode";
+import { getRuntimeSettingsData } from "../cocos/navigation/RuntimeGameServices";
 
 const { ccclass, property } = _decorator;
 
@@ -17,6 +18,12 @@ export class HomePanel extends Component {
   public coinsLabel: Label | null = null;
 
   @property(Label)
+  public staminaAcquireLabel: Label | null = null;
+
+  @property(Label)
+  public coinsAcquireLabel: Label | null = null;
+
+  @property(Label)
   public logoLabel: Label | null = null;
 
   @property(Button)
@@ -30,10 +37,6 @@ export class HomePanel extends Component {
 
   @property(Button)
   public playButton: Button | null = null;
-
-  @property(Button)
-  public socialButton: Button | null = null;
-
   @property(Button)
   public collectionButton: Button | null = null;
 
@@ -49,6 +52,7 @@ export class HomePanel extends Component {
   private dataSource: HomeData | null = null;
   private playHandler: ((levelId: string) => void) | null = null;
   private readonly levelClickHandlers = new Map<HomeLevelNode, () => void>();
+  private placeholderLabel: Label | null = null;
 
   public setDataSource(dataSource: HomeData): void {
     this.dataSource = dataSource;
@@ -70,6 +74,7 @@ export class HomePanel extends Component {
     this.renderResources(viewData);
     this.renderLevels(viewData);
     this.renderPlayState(viewData);
+    this.renderPlaceholderEntries(viewData);
   }
 
   protected onDestroy(): void {
@@ -78,7 +83,6 @@ export class HomePanel extends Component {
     this.unbindButton(this.coinsButton, this.onCoinsClick);
     this.unbindButton(this.settingsButton, this.onSettingsClick);
     this.unbindButton(this.playButton, this.onPlayClick);
-    this.unbindButton(this.socialButton, this.onSocialClick);
     this.unbindButton(this.collectionButton, this.onCollectionClick);
     this.unbindButton(this.shopButton, this.onShopClick);
   }
@@ -90,6 +94,8 @@ export class HomePanel extends Component {
     if (this.coinsLabel !== null) {
       this.coinsLabel.string = "0";
     }
+    this.setAcquireEntryText("stamina", null);
+    this.setAcquireEntryText("coins", null);
     if (this.logoLabel !== null) {
       this.logoLabel.string = "Sand Art Match";
     }
@@ -104,14 +110,46 @@ export class HomePanel extends Component {
 
   private renderResources(viewData: HomeViewData): void {
     if (this.staminaLabel !== null) {
-      this.staminaLabel.string = `${viewData.currentStamina}`;
+      this.staminaLabel.string = getAcquireValueText(viewData, "stamina");
     }
     if (this.coinsLabel !== null) {
-      this.coinsLabel.string = `${viewData.currentCoins}`;
+      this.coinsLabel.string = getAcquireValueText(viewData, "coins");
     }
+    this.setAcquireEntryText("stamina", getAcquireEntry(viewData, "stamina"));
+    this.setAcquireEntryText("coins", getAcquireEntry(viewData, "coins"));
     if (this.logoLabel !== null) {
       this.logoLabel.string = "Sand Art Match";
     }
+  }
+
+  private setAcquireEntryText(action: HomeAcquireEntryAction, entry: HomeAcquireEntryData | null): void {
+    const label = this.ensureAcquireLabel(action);
+    if (label === null) {
+      return;
+    }
+    label.string = entry === null ? "" : entry.rewardHint;
+    label.color = entry?.locked === true ? new Color(158, 106, 78, 255) : new Color(72, 124, 94, 255);
+  }
+
+  private ensureAcquireLabel(action: HomeAcquireEntryAction): Label | null {
+    const existing = action === "stamina" ? this.staminaAcquireLabel : this.coinsAcquireLabel;
+    if (existing !== null) {
+      return existing;
+    }
+    const button = action === "stamina" ? this.staminaButton : this.coinsButton;
+    const fallbackLabel = action === "stamina" ? this.staminaLabel : this.coinsLabel;
+    const parent = button?.node ?? fallbackLabel?.node.parent ?? null;
+    if (parent === null) {
+      return null;
+    }
+    const node = createLabelNode(parent, action === "stamina" ? "StaminaAcquireLabel" : "CoinsAcquireLabel", 156, 24, 0, -28, 16);
+    const label = node.getComponent(Label);
+    if (action === "stamina") {
+      this.staminaAcquireLabel = label;
+    } else {
+      this.coinsAcquireLabel = label;
+    }
+    return label;
   }
 
   private renderLevels(viewData: HomeViewData): void {
@@ -139,6 +177,14 @@ export class HomePanel extends Component {
   private renderPlayState(viewData: HomeViewData): void {
     if (this.playButton !== null) {
       this.playButton.interactable = viewData.canPlay;
+    }
+  }
+
+  private renderPlaceholderEntries(viewData: HomeViewData): void {
+    const shopEntry = getPlaceholderEntry(viewData, "shop");
+    if (this.shopButton !== null) {
+      this.shopButton.node.active = shopEntry?.visible !== false;
+      this.shopButton.interactable = shopEntry?.visible !== false;
     }
   }
 
@@ -202,7 +248,6 @@ export class HomePanel extends Component {
     this.bindButton(this.coinsButton, this.onCoinsClick);
     this.bindButton(this.settingsButton, this.onSettingsClick);
     this.bindButton(this.playButton, this.onPlayClick);
-    this.bindButton(this.socialButton, this.onSocialClick);
     this.bindButton(this.collectionButton, this.onCollectionClick);
     this.bindButton(this.shopButton, this.onShopClick);
   }
@@ -222,15 +267,18 @@ export class HomePanel extends Component {
   }
 
   private onStaminaClick(): void {
-    console.log("[HomePanel] stamina entry clicked");
+    const entry = this.dataSource === null ? null : getAcquireEntry(this.dataSource.getViewData(), "stamina");
+    console.log(`[HomePanel] stamina entry clicked ${entry?.rewardHint ?? ""}`);
   }
 
   private onCoinsClick(): void {
-    console.log("[HomePanel] coins entry clicked");
+    const entry = this.dataSource === null ? null : getAcquireEntry(this.dataSource.getViewData(), "coins");
+    console.log(`[HomePanel] coins entry clicked ${entry?.rewardHint ?? ""}`);
   }
 
   private onSettingsClick(): void {
-    console.log("[HomePanel] settings clicked");
+    const settings = getRuntimeSettingsData().toggle("sound");
+    console.log(`[HomePanel] settings sound=${settings.soundEnabled ? "on" : "off"} vibration=${settings.vibrationEnabled ? "on" : "off"}`);
   }
 
   private onPlayClick(): void {
@@ -245,16 +293,33 @@ export class HomePanel extends Component {
     console.log(`[HomePanel] play clicked levelId=${selected.levelId}`);
   }
 
-  private onSocialClick(): void {
-    console.log("[HomePanel] social clicked");
-  }
 
   private onCollectionClick(): void {
     console.log("[HomePanel] collection clicked");
   }
 
   private onShopClick(): void {
-    console.log("[HomePanel] shop clicked");
+    this.showPlaceholderMessage("shop");
+  }
+
+  private showPlaceholderMessage(action: HomePlaceholderEntryAction): void {
+    const viewData = this.dataSource?.getViewData() ?? null;
+    const entry = viewData === null ? null : getPlaceholderEntry(viewData, action);
+    const label = this.ensurePlaceholderLabel();
+    if (label !== null) {
+      label.string = entry?.message ?? "Feature is not active yet";
+    }
+    console.log(`[HomePanel] ${action} placeholder ${entry?.featureGate ?? "missing"}`);
+  }
+
+  private ensurePlaceholderLabel(): Label | null {
+    if (this.placeholderLabel !== null && this.placeholderLabel.node.isValid) {
+      return this.placeholderLabel;
+    }
+    const node = createLabelNode(this.node, "HomePlaceholderLabel", 360, 32, 0, -618, 18);
+    this.placeholderLabel = node.getComponent(Label);
+    this.placeholderLabel.color = new Color(158, 106, 78, 255);
+    return this.placeholderLabel;
   }
 
   private clearLevelHandlers(): void {
@@ -277,4 +342,20 @@ function createLabelNode(parent: Node, name: string, width: number, height: numb
   label.color = TEXT_COLOR;
   parent.addChild(node);
   return node;
+}
+
+function getAcquireEntry(viewData: HomeViewData, action: HomeAcquireEntryAction): HomeAcquireEntryData | null {
+  return viewData.acquireEntries.find((entry) => entry.action === action) ?? null;
+}
+
+function getAcquireValueText(viewData: HomeViewData, action: HomeAcquireEntryAction): string {
+  const entry = getAcquireEntry(viewData, action);
+  if (entry !== null) {
+    return entry.valueText;
+  }
+  return action === "stamina" ? `${viewData.currentStamina}` : `${viewData.currentCoins}`;
+}
+
+function getPlaceholderEntry(viewData: HomeViewData, action: HomePlaceholderEntryAction) {
+  return viewData.placeholderEntries.find((entry) => entry.action === action) ?? null;
 }

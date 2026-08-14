@@ -100,6 +100,13 @@ describe("CollectionDetailData", () => {
     assert.equal(typeof result?.rewardHint, "string");
     assert.equal((result?.rewardHint.length ?? 0) > 0, true);
   });
+
+  it("keeps the certificate placeholder color tied to the artwork theme", () => {
+    const result = createData().getViewData("spring-001");
+
+    assert.equal(result?.themeId, "spring-garden");
+    assert.equal(result?.certificatePlaceholderColor, "#ABCDEF");
+  });
 });
 
 function createData(store = createCollectionProgressStore(new MemoryCollectionStorage(), ARTWORKS)): CollectionDetailData {

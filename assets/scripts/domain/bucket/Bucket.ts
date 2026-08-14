@@ -13,6 +13,7 @@ export interface BucketState {
   readonly capacity: number;
   readonly amount: number;
   readonly status: BucketStatus;
+  readonly poolSlotIndex?: number;
 }
 
 export interface BucketRuntimeInit {

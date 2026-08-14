@@ -1,7 +1,7 @@
-import { _decorator, Button, Color, Component, Graphics, Label, Layout, Mask, Node, ScrollView, Sprite, Tween, UIOpacity, UITransform, Vec3, tween } from "cc";
+﻿import { _decorator, Button, Color, Component, Graphics, Label, Layout, Mask, Node, ScrollView, Sprite, Tween, UIOpacity, UITransform, Vec3, tween } from "cc";
 import { createBucketPoolState, type BucketPoolBucketState } from "../../domain/bucket/BucketPool";
 import type { BucketState } from "../../domain/bucket/Bucket";
-import { createBucketPoolLayoutModel, createBucketPoolVisualLayoutModel, selectCandidateBuckets } from "./BucketPoolLayoutModel";
+import { createBucketPoolLayoutModel, createBucketPoolVisualLayoutModel } from "./BucketPoolLayoutModel";
 import { createBucketVisualModel } from "./BucketVisualModel";
 import { clearBucketVisual, renderBucketVisual } from "./BucketVisualView";
 import type { BattlePresentationEvent } from "./BattleViewContract";
@@ -18,6 +18,9 @@ const TEXT_OUTLINE_COLOR = new Color(255, 255, 255, 220);
 const SHADOW_COLOR = new Color(38, 48, 45, 80);
 const SLOT_FILL_COLOR = new Color(255, 247, 222, 135);
 const SLOT_STROKE_COLOR = new Color(142, 111, 62, 95);
+const TOOL_CALLOUT_FILL_COLOR = new Color(255, 250, 236, 252);
+const TOOL_CALLOUT_STROKE_COLOR = new Color(151, 116, 66, 190);
+const TOOL_CALLOUT_TEXT_COLOR = new Color(116, 79, 48, 255);
 const VIEWPORT_NODE_NAME = "Viewport";
 const CONTENT_NODE_NAME = "Content";
 const GRID_NODE_NAME = "BucketPoolGrid";
@@ -45,6 +48,8 @@ export class BucketPoolView extends Component {
   private readonly inFlightBucketIds = new Set<string>();
   private viewportNode: Node | null = null;
   private contentNode: Node | null = null;
+  private toolCalloutNode: Node | null = null;
+  private poolToolTargetEnabled = false;
   private visualRevision = 0;
 
   public setActions(actions: BattleUiActions): void {
@@ -65,17 +70,24 @@ export class BucketPoolView extends Component {
     this.refreshButtonStates();
   }
 
+  public setPoolToolTargetEnabled(enabled: boolean): void {
+    this.poolToolTargetEnabled = enabled;
+    this.refreshButtonStates();
+  }
+
   public renderBucketPool(buckets: readonly BucketState[]): void {
     this.visualRevision += 1;
     const poolState = createBucketPoolState(buckets);
-    const candidateBuckets = selectCandidateBuckets(buckets);
-    const layout = createBucketPoolVisualLayoutModel(poolState.buckets, BUCKET_POOL_VIEWPORT_HEIGHT);
+    const renderEntries = createStableColumnRenderEntries(buckets, poolState.buckets);
+    const candidateBuckets = renderEntries.map((entry) => entry.bucket);
+    const poolBuckets = renderEntries.map((entry) => entry.poolBucket);
+    const layout = createBucketPoolVisualLayoutModel(poolBuckets, BUCKET_POOL_VIEWPORT_HEIGHT);
     const previousPositions = this.captureBucketPositions();
     this.ensureScrollContainer();
     this.ensureBucketViews(candidateBuckets.length);
     this.applyStableLayout(layout);
     this.renderedBuckets = candidateBuckets;
-    this.renderedPoolBuckets = poolState.buckets;
+    this.renderedPoolBuckets = poolBuckets;
     this.debugValidateCandidateBindings(candidateBuckets);
     if (this.titleLabel !== null) {
       this.titleLabel.node.active = false;
@@ -84,7 +96,7 @@ export class BucketPoolView extends Component {
 
     for (let index = 0; index < this.bucketLabels.length; index += 1) {
       const bucket = candidateBuckets[index];
-      const poolBucket = poolState.buckets[index];
+      const poolBucket = poolBuckets[index];
       this.resetBucketNode(index);
       this.bucketLabels[index].string = bucket === undefined ? "" : createBucketVisualModel(bucket).remainingText;
       this.bucketLabels[index].node.active = bucket !== undefined && !this.inFlightBucketIds.has(bucket.instanceId);
@@ -118,6 +130,7 @@ export class BucketPoolView extends Component {
     this.visualRevision += 1;
     this.inFlightBucketIds.clear();
     this.unscheduleAllCallbacks();
+    this.hideToolCallout();
     for (const button of this.bucketButtons) {
       Tween.stopAllByTarget(button.node);
       button.node.setScale(1, 1, 1);
@@ -142,6 +155,44 @@ export class BucketPoolView extends Component {
     return root === null ? null : root.worldPosition.clone();
   }
 
+  public playHintToolFeedback(bucketInstanceId: string | null, message: string): void {
+    this.showToolCallout(message);
+    if (bucketInstanceId !== null) {
+      this.flashBucket(bucketInstanceId, "selected");
+      return;
+    }
+    this.flashFirstUnavailableBucket();
+  }
+
+  public playShuffleToolFeedback(bucketInstanceIds: readonly string[], message: string): void {
+    this.showToolCallout(message);
+    const ids = bucketInstanceIds.length > 0 ? new Set(bucketInstanceIds) : null;
+    for (let index = 0; index < this.renderedBuckets.length; index += 1) {
+      const bucket = this.renderedBuckets[index];
+      const node = this.bucketButtons[index]?.node;
+      if (bucket === undefined || node === undefined || (ids !== null && !ids.has(bucket.instanceId))) {
+        continue;
+      }
+      const start = node.position.clone();
+      const delay = Math.min(0.16, index * 0.025);
+      Tween.stopAllByTarget(node);
+      this.scheduleOnce(() => {
+        if (!this.isValid || !node.isValid) {
+          return;
+        }
+        node.setPosition(start);
+        node.setScale(0.94, 0.94, 1);
+        tween(node)
+          .to(0.08, {
+            position: new Vec3(start.x + (index % 2 === 0 ? -14 : 14), start.y + 18, 0),
+            scale: new Vec3(1.04, 1.04, 1),
+          })
+          .to(0.12, { position: start, scale: new Vec3(1, 1, 1) }, { easing: "backOut" })
+          .start();
+      }, delay);
+    }
+  }
+
   public markBucketInFlight(bucketInstanceId: string): void {
     this.inFlightBucketIds.add(bucketInstanceId);
     const index = this.renderedBuckets.findIndex((bucket) => bucket.instanceId === bucketInstanceId);
@@ -158,6 +209,7 @@ export class BucketPoolView extends Component {
     this.visualRevision += 1;
     this.inFlightBucketIds.clear();
     this.cancelFeedback();
+    this.hideToolCallout();
     this.applyStableLayout(createBucketPoolVisualLayoutModel(this.renderedPoolBuckets, BUCKET_POOL_VIEWPORT_HEIGHT));
     this.renderedBuckets = [];
     this.renderedPoolBuckets = [];
@@ -488,6 +540,9 @@ export class BucketPoolView extends Component {
   }
 
   private isBucketButtonEnabled(_index: number, bucket: BucketState | undefined, poolBucket: BucketPoolBucketState | undefined): boolean {
+    if (this.poolToolTargetEnabled) {
+      return this.inputEnabled && bucket !== undefined && !this.inFlightBucketIds.has(bucket.instanceId);
+    }
     return this.inputEnabled && bucket !== undefined && poolBucket !== undefined && poolBucket.isSelectable && !this.inFlightBucketIds.has(bucket.instanceId);
   }
 
@@ -533,6 +588,15 @@ export class BucketPoolView extends Component {
     }
     const bucket = this.renderedBuckets[index];
     const poolBucket = this.renderedPoolBuckets[index];
+    if (this.poolToolTargetEnabled) {
+      if (bucket === undefined) {
+        this.flashBucketAt(index, "error");
+        return;
+      }
+      this.flashBucketAt(index, "selected");
+      this.actions?.targetBucketWithTool("removePoolBucket", bucket.instanceId);
+      return;
+    }
     if (bucket === undefined || poolBucket === undefined || !poolBucket.isSelectable) {
       this.flashBucketAt(index, "error");
       return;
@@ -598,6 +662,67 @@ export class BucketPoolView extends Component {
     }, kind === "error" ? 0.18 : 0.22);
   }
 
+  private showToolCallout(message: string): void {
+    const callout = this.ensureToolCalloutNode();
+    const label = callout.getChildByName("Label")?.getComponent(Label) ?? null;
+    if (label !== null) {
+      label.string = message;
+      label.color = TOOL_CALLOUT_TEXT_COLOR;
+      label.fontSize = 24;
+      label.lineHeight = 32;
+      label.enableOutline = true;
+      label.outlineColor = TEXT_OUTLINE_COLOR;
+      label.outlineWidth = 2;
+      label.enableShadow = true;
+      label.shadowColor = SHADOW_COLOR;
+      label.shadowOffset.set(1, -1);
+      label.shadowBlur = 1;
+    }
+    callout.active = true;
+    callout.setScale(0.94, 0.94, 1);
+    const opacity = callout.getComponent(UIOpacity) ?? callout.addComponent(UIOpacity);
+    opacity.opacity = 255;
+    Tween.stopAllByTarget(callout);
+    tween(callout)
+      .to(0.1, { scale: new Vec3(1, 1, 1) }, { easing: "backOut" })
+      .delay(1.35)
+      .to(0.16, { scale: new Vec3(0.98, 0.98, 1) })
+      .call(() => this.hideToolCallout())
+      .start();
+  }
+
+  private hideToolCallout(): void {
+    if (this.toolCalloutNode === null) {
+      return;
+    }
+    Tween.stopAllByTarget(this.toolCalloutNode);
+    this.toolCalloutNode.active = false;
+  }
+
+  private ensureToolCalloutNode(): Node {
+    if (this.toolCalloutNode !== null && this.toolCalloutNode.isValid) {
+      return this.toolCalloutNode;
+    }
+    const callout = new Node("BucketToolCallout");
+    callout.addComponent(UITransform).setContentSize(560, 78);
+    callout.addComponent(UIOpacity);
+    const background = new Node("Background");
+    background.addComponent(UITransform).setContentSize(560, 78);
+    background.addComponent(Graphics);
+    callout.addChild(background);
+    const labelNode = new Node("Label");
+    labelNode.addComponent(UITransform).setContentSize(500, 42);
+    labelNode.addComponent(Label);
+    labelNode.setPosition(0, 6, 0);
+    callout.addChild(labelNode);
+    this.node.addChild(callout);
+    callout.setPosition(0, 156, 0);
+    callout.setSiblingIndex(120);
+    drawToolCalloutArt(background);
+    this.toolCalloutNode = callout;
+    return callout;
+  }
+
   private debugValidateCandidateBindings(buckets: readonly BucketState[]): void {
     if (!this.debugBindingChecksEnabled) {
       return;
@@ -645,6 +770,23 @@ export class BucketPoolView extends Component {
   }
 }
 
+function createStableColumnRenderEntries(
+  buckets: readonly BucketState[],
+  poolBuckets: readonly BucketPoolBucketState[],
+): ReadonlyArray<{ readonly bucket: BucketState; readonly poolBucket: BucketPoolBucketState }> {
+  const bucketsById = new Map<string, BucketState>();
+  for (const bucket of buckets) {
+    bucketsById.set(bucket.instanceId, bucket);
+  }
+  const entries: Array<{ readonly bucket: BucketState; readonly poolBucket: BucketPoolBucketState }> = [];
+  for (const poolBucket of poolBuckets) {
+    const bucket = bucketsById.get(poolBucket.bucketId) ?? null;
+    if (bucket !== null) {
+      entries.push(Object.freeze({ bucket, poolBucket }));
+    }
+  }
+  return Object.freeze(entries);
+}
 function setContentSize(node: Node | null | undefined, width: number, height: number): void {
   node?.getComponent(UITransform)?.setContentSize(width, height);
 }
@@ -659,6 +801,26 @@ function drawRuntimeSlotArt(node: Node | null | undefined): void {
   graphics.strokeColor = SLOT_STROKE_COLOR;
   graphics.lineWidth = 2;
   graphics.roundRect(-58, -48, 116, 96, 14);
+  graphics.fill();
+  graphics.stroke();
+}
+
+function drawToolCalloutArt(node: Node | null | undefined): void {
+  const graphics = node?.getComponent(Graphics) ?? null;
+  if (graphics === null) {
+    return;
+  }
+  graphics.clear();
+  graphics.fillColor = TOOL_CALLOUT_FILL_COLOR;
+  graphics.strokeColor = TOOL_CALLOUT_STROKE_COLOR;
+  graphics.lineWidth = 3;
+  graphics.roundRect(-280, -32, 560, 64, 18);
+  graphics.fill();
+  graphics.stroke();
+  graphics.moveTo(-18, -32);
+  graphics.lineTo(0, -52);
+  graphics.lineTo(18, -32);
+  graphics.close();
   graphics.fill();
   graphics.stroke();
 }

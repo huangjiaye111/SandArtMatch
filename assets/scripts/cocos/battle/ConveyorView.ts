@@ -1,4 +1,4 @@
-import { _decorator, Color, Component, Graphics, Label, Layout, Mask, Node, Sprite, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
+import { _decorator, Button, Color, Component, Graphics, Label, Layout, Mask, Node, Sprite, tween, Tween, UIOpacity, UITransform, Vec3 } from "cc";
 import type { BucketState } from "../../domain/bucket/Bucket";
 import type { ConveyorState } from "../../domain/bucket/Conveyor";
 import type { BattlePresentationEvent } from "./BattleViewContract";
@@ -58,6 +58,8 @@ export class ConveyorView extends Component {
   private readonly transitionNodePool: Node[] = [];
   private readonly loopCarrierNodes: Node[] = [];
   private conveyorPhase = 0;
+  private carrierToolTargetEnabled = false;
+  private carrierToolTargetHandler: ((bucketInstanceId: string) => void) | null = null;
 
   public renderConveyor(conveyor: ConveyorState, buckets: readonly BucketState[]): void {
     this.applyStableLayout();
@@ -89,7 +91,19 @@ export class ConveyorView extends Component {
       }
       const carrier = this.ensureActiveCarrier(bucket, index);
       this.renderCarrierVisual(carrier, bucket, mergeReadyIds.has(bucket.instanceId));
+      this.refreshCarrierInteractable(carrier);
     }
+  }
+
+  public setCarrierToolTargetEnabled(enabled: boolean): void {
+    this.carrierToolTargetEnabled = enabled;
+    for (const carrier of this.activeCarriersByBucketId.values()) {
+      this.refreshCarrierInteractable(carrier);
+    }
+  }
+
+  public setCarrierToolTargetHandler(handler: ((bucketInstanceId: string) => void) | null): void {
+    this.carrierToolTargetHandler = handler;
   }
 
   protected update(deltaTime: number): void {
@@ -509,9 +523,12 @@ export class ConveyorView extends Component {
       root.addChild(carrier);
       carrier.addComponent(UITransform).setContentSize(LAYOUT.slotWidth, LAYOUT.slotHeight + 58);
       carrier.addComponent(UIOpacity);
+      carrier.addComponent(Button);
+      carrier.on(Button.EventType.CLICK, () => this.handleCarrierTapped(carrier as Node), this);
     }
     carrier.active = true;
     this.ensureCarrierVisualChildren(carrier);
+    this.refreshCarrierInteractable(carrier);
     this.loopCarrierNodes[index] = carrier;
     return carrier;
   }
@@ -773,6 +790,36 @@ export class ConveyorView extends Component {
     if (label !== null) {
       label.active = false;
     }
+    this.refreshCarrierInteractable(carrier);
+  }
+
+  private refreshCarrierInteractable(carrier: Node): void {
+    const button = carrier.getComponent(Button) ?? null;
+    if (button !== null) {
+      button.interactable = this.carrierToolTargetEnabled && this.findBucketIdForCarrier(carrier) !== null;
+    }
+    carrier.setScale(this.carrierToolTargetEnabled && this.findBucketIdForCarrier(carrier) !== null ? 1.04 : 1, this.carrierToolTargetEnabled && this.findBucketIdForCarrier(carrier) !== null ? 1.04 : 1, 1);
+  }
+
+  private handleCarrierTapped(carrier: Node): void {
+    if (!this.carrierToolTargetEnabled) {
+      return;
+    }
+    const bucketId = this.findBucketIdForCarrier(carrier);
+    if (bucketId === null) {
+      return;
+    }
+    this.flashBucketId(bucketId, "enter");
+    this.carrierToolTargetHandler?.(bucketId);
+  }
+
+  private findBucketIdForCarrier(carrier: Node): string | null {
+    for (const [bucketId, storedCarrier] of this.activeCarriersByBucketId.entries()) {
+      if (storedCarrier === carrier) {
+        return bucketId;
+      }
+    }
+    return null;
   }
 
   private isCarrierOwned(node: Node): boolean {
